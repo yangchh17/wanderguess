@@ -83,7 +83,7 @@
       opacity:.95;transition:width .25s,height .25s,opacity .2s}
     #g-mapPanel.expanded{width:min(94vw,880px);height:min(76vh,640px);opacity:1}
     #g-map{flex:1 1 0;min-height:0}
-    #g-expand{position:absolute;top:6px;right:6px;z-index:5;width:30px;height:30px;border-radius:7px;border:none;background:rgba(20,22,30,.85);color:#adb4d4;font-size:15px}
+    #g-expand{position:absolute;top:6px;right:6px;z-index:5;width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:rgba(20,22,30,.92);color:#e8eaf0;font-size:18px;line-height:1}
     #g-foot{flex:0 0 auto;background:#12141e;border-top:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:8px}
     #g-foot .btn{width:100%}
     #g-result{display:none;justify-content:space-between;font-size:.84rem;padding:2px 4px}
@@ -564,7 +564,10 @@ function ensureGuessMap(){
     $('g-confirm').textContent = 'Confirm guess';
   });
 }
-function setGExpanded(on){ $('g-mapPanel').classList.toggle('expanded', on); }
+function setGExpanded(on){
+  $('g-mapPanel').classList.toggle('expanded', on);
+  $('g-expand').textContent = on ? '×' : '⤢';   // ⤢ expand · × collapse
+}
 function clearGuessLayers(){
   [gGuessMarker, gTruthMarker, gLine].forEach(l => l && gmap && gmap.removeLayer(l));
   gGuessMarker = gTruthMarker = gLine = null;
