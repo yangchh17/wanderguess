@@ -332,7 +332,13 @@ $('btn-join').addEventListener('click', async () => {
     if (prior && prior.roomId === room.id) {
       const { data: existing } = await sb.from('players')
         .select('id,name').eq('id', prior.playerId).eq('room_id', room.id).maybeSingle();
-      if (existing) player = existing;
+      if (existing) {
+        player = existing;
+        if (name && name !== existing.name) {           // rejoining with a new name → update it
+          await sb.rpc('set_name', { p_player_id: existing.id, p_name: name });
+          player = { ...existing, name };
+        }
+      }
     }
     if (!player) {
       const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', room.id);
@@ -371,7 +377,7 @@ async function enterLobby(){
   prevStatus = null;
   session.code = room.code; saveSession(session);
   $('room-code').textContent = session.code;
-  $('ppp-hint').textContent = `pick ${roomPPP} to add to the pool`;
+  $('ppp-hint').textContent = `add up to ${roomPPP} to the pool`;
   show('s-lobby');
   refreshLobby();
   clearInterval(pollTimer);
@@ -408,7 +414,7 @@ async function refreshLobby(){
     const online = players.filter(isOnline);
     onlineTotal = online.length;
     onlineReady = online.filter(p => p.ready).length;
-    $('player-count').textContent = `(${players.length}/6)`;
+    $('player-count').textContent = `(${players.length}/6 · ${onlineTotal} online)`;
     $('players').innerHTML = players.map(p =>
       `<span class="chip ${p.id === session.playerId ? 'me' : ''} ${isOnline(p) ? 'on' : 'off'}">` +
       `<span class="dot"></span>${escapeHtml(p.name)}${p.ready ? ' ✓' : ''}${players[0].id === p.id ? ' (host)' : ''}</span>`).join('');
@@ -426,12 +432,12 @@ async function refreshLobby(){
   $('togo-count').textContent = togo.length;
   renderMyPhotos(all.filter(p => p.uploader_id === session.playerId));
 
-  // Ready toggle (enabled once you've pooled your share)
-  const canReady = myPooled >= roomPPP;
+  // Ready toggle (enabled once you've added at least one photo; N is a max, not required)
+  const canReady = myPooled >= 1;
   const rb = $('btn-ready');
   rb.disabled = !canReady && !myReady;
   rb.dataset.ready = myReady ? '1' : '0';
-  rb.textContent = myReady ? 'Ready ✓ — tap to undo' : (canReady ? "I'm ready" : `Pool ${roomPPP} photo(s) first`);
+  rb.textContent = myReady ? 'Ready ✓ — tap to undo' : (canReady ? "I'm ready" : 'Add a photo to the pool first');
 
   // Host "Start game" — enabled when all ONLINE players are ready (offline can't block)
   const hs = $('btn-hoststart');
@@ -459,12 +465,7 @@ async function refreshLobby(){
     clearTimer(); resetPlay();
     $('s-play').classList.remove('on'); $('g-finish').classList.remove('on');
   }
-
-  // Start together: auto-enter the moment the room flips to playing
-  if (prevStatus !== null && prevStatus !== 'playing' && status === 'playing'
-      && !$('s-play').classList.contains('on') && togo.length > 0) {
-    enterPlay();
-  }
+  // (Async: NO auto-enter. Host-start just unlocks; each player enters when they choose.)
   prevStatus = status;
 
   const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
@@ -490,8 +491,8 @@ function renderMyPhotos(mine){
 
   const n = mySelected.size;
   const btn = $('btn-pool');
-  btn.disabled = n !== roomPPP;
-  btn.textContent = n === roomPPP ? `Add ${roomPPP} to pool` : `Select ${roomPPP} (${n}/${roomPPP})`;
+  btn.disabled = n < 1;                                  // up to roomPPP, at least 1
+  btn.textContent = n < 1 ? `Add to pool (up to ${roomPPP})` : `Add ${n} to pool`;
 }
 
 async function submitPool(){

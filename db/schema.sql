@@ -166,6 +166,14 @@ end; $$;
 revoke all on function public.set_pool(uuid, uuid[]) from public;
 grant execute on function public.set_pool(uuid, uuid[]) to anon;
 
+-- Rename a player (e.g., rejoining with a different name).
+create or replace function public.set_name(p_player_id uuid, p_name text)
+returns void language sql security definer set search_path = public as $$
+  update public.players set name = p_name where id = p_player_id and p_name <> '';
+$$;
+revoke all on function public.set_name(uuid, text) from public;
+grant execute on function public.set_name(uuid, text) to anon;
+
 -- Presence heartbeat (clients call periodically while in the room).
 create or replace function public.touch_player(p_player_id uuid)
 returns void language sql security definer set search_path = public as $$
