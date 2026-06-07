@@ -116,6 +116,7 @@
     <div class="card">
       <span class="mut">Room code — share it</span>
       <div id="room-code" class="code-big">····</div>
+      <button id="btn-leave" class="btn btn-ghost">Leave room</button>
     </div>
 
     <div class="card">
@@ -282,12 +283,30 @@ function msgHome(t, err){ $('home-msg').className = 'msg ' + (err ? 'err' : 'ok'
 
 // ---- lobby ----
 let pollTimer = null;
-function enterLobby(){
+async function enterLobby(){
+  // Validate the saved session still points to a live room + player
+  // (rooms can be deleted; don't strand the user in a dead room).
+  const { data: room } = await sb.from('rooms').select('id,code').eq('id', session.roomId).maybeSingle();
+  const me = room ? (await sb.from('players').select('id').eq('id', session.playerId).maybeSingle()).data : null;
+  if (!room || !me) return invalidSession('That room has ended — start or join a new one.');
+
+  session.code = room.code; saveSession(session);
   $('room-code').textContent = session.code;
   show('s-lobby');
   refreshLobby();
   clearInterval(pollTimer);
   pollTimer = setInterval(refreshLobby, 3000);
+}
+
+function leaveRoom(){
+  clearInterval(pollTimer);
+  localStorage.removeItem(LS); session = null;
+  show('s-home'); $('home-msg').textContent = '';
+}
+function invalidSession(msg){
+  clearInterval(pollTimer);
+  localStorage.removeItem(LS); session = null;
+  show('s-home'); if (msg) msgHome(msg, false);
 }
 
 async function refreshLobby(){
@@ -426,7 +445,12 @@ async function uploadOne(file){
     const { data, error } = await sb.functions.invoke('process-photo', {
       body: { roomId: session.roomId, uploaderId: session.playerId, photoId, srcPath, lat: coord.lat, lng: coord.lng },
     });
-    if (error) throw error;
+    if (error) {
+      let detail = error.message;
+      try { if (error.context) detail = (await error.context.json()).error || detail; } catch {}
+      if (/uploader\/room/.test(detail)) detail += ' — try leaving and rejoining the room';
+      throw new Error(detail);
+    }
 
     if (data.status === 'ready')         { setCls('ok'); setSt('added to the pool ✓'); }
     else if (data.status === 'rejected') { setCls('bad'); setSt(data.error || 'rejected'); }
@@ -548,6 +572,7 @@ async function finishPlay(){
 function exitPlay(){ $('s-play').classList.remove('on'); refreshLobby(); }
 
 // play wiring
+$('btn-leave').addEventListener('click', leaveRoom);
 $('btn-start').addEventListener('click', enterPlay);
 $('g-confirm').addEventListener('click', confirmGuess2);
 $('g-next').addEventListener('click', nextGuess);
