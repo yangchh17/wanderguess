@@ -56,6 +56,41 @@
     .pinmap-foot{display:flex;gap:10px;padding:12px}
     .pinmap-foot .btn{flex:1}
     .guesspin{width:20px;height:20px;border-radius:50%;background:var(--bad);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+    .truthpin{width:20px;height:20px;border-radius:50%;background:var(--good);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+
+    /* ── Play screen (full-screen GeoGuessr layout) ── */
+    #s-play{position:fixed;inset:0;z-index:1100;background:#000;display:none}
+    #s-play.on{display:block}
+    #g-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+    #g-stage img{max-width:100%;max-height:100%;object-fit:contain}
+    #g-spin{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#6b6f85;font-size:.85rem;background:#000;z-index:2}
+    #g-spin.on{display:flex}
+    #g-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:max(12px,env(safe-area-inset-top)) 14px 12px;z-index:6;gap:10px}
+    #g-exit{background:rgba(20,22,30,.82);border:1px solid var(--line);color:#adb4d4;border-radius:10px;padding:9px 13px;font-weight:700;font-size:.85rem}
+    #g-hud{background:rgba(20,22,30,.82);border:1px solid var(--line);border-radius:10px;padding:7px 14px;display:flex;gap:18px;font-size:.8rem;backdrop-filter:blur(6px)}
+    #g-hud .k{display:block;color:#6b6f85;font-size:.6rem;text-transform:uppercase;letter-spacing:.06em}
+    #g-hud .v{font-weight:700}#g-round{color:var(--ink)}#g-score{color:var(--good)}
+    #g-mapPanel{position:absolute;right:12px;bottom:max(12px,env(safe-area-inset-bottom));z-index:6;
+      width:min(50vw,300px);height:min(34vh,210px);display:flex;flex-direction:column;border-radius:12px;
+      overflow:hidden;border:1px solid var(--line);box-shadow:0 12px 34px rgba(0,0,0,.55);background:var(--card);
+      opacity:.95;transition:width .25s,height .25s,opacity .2s}
+    #g-mapPanel.expanded{width:min(94vw,880px);height:min(76vh,640px);opacity:1}
+    #g-map{flex:1 1 0;min-height:0}
+    #g-expand{position:absolute;top:6px;right:6px;z-index:5;width:30px;height:30px;border-radius:7px;border:none;background:rgba(20,22,30,.85);color:#adb4d4;font-size:15px}
+    #g-foot{flex:0 0 auto;background:#12141e;border-top:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:8px}
+    #g-foot .btn{width:100%}
+    #g-result{display:none;justify-content:space-between;font-size:.84rem;padding:2px 4px}
+    #g-result .d{color:#f8c97c;font-weight:700}#g-result .p{color:var(--good);font-weight:700}
+    #g-finish{position:absolute;inset:0;z-index:7;background:rgba(15,17,23,.97);display:none;flex-direction:column;
+      align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center}
+    #g-finish.on{display:flex}
+    #g-finish h2{color:var(--accent)}
+    .lb{width:min(440px,92vw);display:flex;flex-direction:column;gap:6px}
+    .lbrow{display:flex;justify-content:space-between;gap:10px;padding:9px 13px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:.9rem}
+    .lbrow.me{border-color:var(--accent)}
+    .lbrow .pts{color:var(--good);font-weight:700}
+    .lbrow .rk{color:var(--mut);width:1.6em}
+    .lbrow .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style>
 </head>
 <body>
@@ -99,10 +134,49 @@
     </div>
 
     <div class="card">
-      <span class="mut">Pool: <b id="pool-count">0</b> photos ready across the room.</span>
-      <button id="btn-start" class="btn btn-primary" disabled>Start guessing (next build step)</button>
+      <span class="mut">Pool: <b id="pool-count">0</b> photos ready · <b id="togo-count">0</b> for you to guess.</span>
+      <button id="btn-start" class="btn btn-primary" disabled>Start guessing</button>
+    </div>
+
+    <div class="card">
+      <h2>Leaderboard</h2>
+      <div id="leaderboard" class="lb"><span class="mut">No scores yet.</span></div>
     </div>
   </section>
+
+<!-- ───────── Play screen (full-screen guessing) ───────── -->
+<div id="s-play">
+  <div id="g-stage"><img id="g-photo" alt="" /></div>
+  <div id="g-spin">loading photo…</div>
+
+  <div id="g-top">
+    <button id="g-exit">← Lobby</button>
+    <div id="g-hud">
+      <div><span class="k">Photo</span><span class="v" id="g-round">—</span></div>
+      <div><span class="k">Score</span><span class="v" id="g-score">0</span></div>
+    </div>
+  </div>
+
+  <div id="g-mapPanel">
+    <div id="g-map"></div>
+    <button id="g-expand" title="Expand / collapse">⤢</button>
+    <div id="g-foot">
+      <div id="g-result">
+        <span><span class="label">dist</span> <span class="d" id="g-dist">—</span></span>
+        <span><span class="label">pts</span> <span class="p" id="g-pts">—</span></span>
+      </div>
+      <button id="g-confirm" class="btn btn-primary" disabled>Tap the map to guess</button>
+      <button id="g-next" class="btn btn-primary" style="display:none">Next photo</button>
+    </div>
+  </div>
+
+  <div id="g-finish">
+    <h2>Round complete</h2>
+    <div class="mut" id="g-finish-sub"></div>
+    <div id="g-finish-lb" class="lb"></div>
+    <button id="g-back" class="btn btn-ghost" style="width:min(440px,92vw)">Back to lobby</button>
+  </div>
+</div>
 
 <!-- Pin-a-location overlay (manual fallback when EXIF has no GPS) -->
 <div id="pinmap" class="pinmap">
@@ -123,6 +197,7 @@
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { makeDisplaySource, isHeic } from './shared/media.js';
+import { scoreGuess, formatKm } from './shared/geo.js';
 
 const $ = id => document.getElementById(id);
 const show = s => document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));
@@ -224,11 +299,31 @@ async function refreshLobby(){
     $('players').innerHTML = players.map(p =>
       `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}</span>`).join('');
   }
-  // pool count (from the SAFE view — no truth columns exist there)
-  const { count } = await sb.from('photos_public')
-    .select('id', { count: 'exact', head: true })
-    .eq('room_id', session.roomId).eq('status', 'ready');
-  $('pool-count').textContent = count ?? 0;
+  // ready pool (SAFE view — no truth columns). Compute how many YOU can still guess.
+  const { data: pool } = await sb.from('photos_public')
+    .select('id,uploader_id').eq('room_id', session.roomId).eq('status', 'ready');
+  const ready = pool || [];
+  const done = getDone();
+  const togo = ready.filter(p => p.uploader_id !== session.playerId && !done.has(p.id));
+  $('pool-count').textContent = ready.length;
+  $('togo-count').textContent = togo.length;
+  $('btn-start').disabled = togo.length === 0;
+  // leaderboard
+  const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
+  renderLeaderboard($('leaderboard'), lb || []);
+}
+
+// ---- guessed-photos memory (per room+player, this browser) ----
+function doneKey(){ return `wg.done.${session.roomId}.${session.playerId}`; }
+function getDone(){ try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || '[]')); } catch { return new Set(); } }
+function addDone(id){ const s = getDone(); s.add(id); localStorage.setItem(doneKey(), JSON.stringify([...s])); }
+
+function renderLeaderboard(el, rows){
+  if (!rows.length){ el.innerHTML = '<span class="mut">No scores yet.</span>'; return; }
+  el.innerHTML = rows.map((r, i) =>
+    `<div class="lbrow ${r.player_id === session.playerId ? 'me' : ''}">` +
+    `<span class="rk">${i + 1}</span><span class="nm">${escapeHtml(r.name)}</span>` +
+    `<span class="pts">${(r.total_points||0).toLocaleString()}</span></div>`).join('');
 }
 
 // ──────────────── Pin-a-location overlay (Leaflet) ────────────────
@@ -340,6 +435,125 @@ async function uploadOne(file){
     setCls('bad'); setSt('error: ' + (e.message || e));
   }
 }
+
+// ──────────────── Play: pooled guessing ────────────────
+const gstate = { queue: [], idx: 0, guess: null, phase: 'idle', score: 0 };
+let gmap = null, gGuessMarker = null, gTruthMarker = null, gLine = null;
+
+function ensureGuessMap(){
+  if (gmap) return;
+  gmap = L.map('g-map', { center: [20, 0], zoom: 2 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(gmap);
+  new ResizeObserver(() => gmap.invalidateSize()).observe(document.getElementById('g-map'));
+  gmap.on('click', (e) => {
+    if (gstate.phase !== 'guessing') return;
+    // On a small (collapsed) map, the first tap just expands it (touch-friendly).
+    if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
+    gstate.guess = { lat: e.latlng.lat, lng: e.latlng.lng };
+    const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
+    if (gGuessMarker) gGuessMarker.setLatLng(e.latlng);
+    else gGuessMarker = L.marker(e.latlng, { icon }).addTo(gmap);
+    $('g-confirm').disabled = false;
+    $('g-confirm').textContent = 'Confirm guess';
+  });
+}
+function setGExpanded(on){ $('g-mapPanel').classList.toggle('expanded', on); }
+function clearGuessLayers(){
+  [gGuessMarker, gTruthMarker, gLine].forEach(l => l && gmap && gmap.removeLayer(l));
+  gGuessMarker = gTruthMarker = gLine = null;
+}
+
+async function enterPlay(){
+  const { data: pool } = await sb.from('photos_public')
+    .select('id,display_url,uploader_id').eq('room_id', session.roomId)
+    .eq('status', 'ready').order('created_at');
+  const done = getDone();
+  gstate.queue = (pool || []).filter(p => p.uploader_id !== session.playerId && !done.has(p.id) && p.display_url);
+  gstate.idx = 0; gstate.score = 0; gstate.phase = 'idle';
+  $('g-score').textContent = '0';
+  $('g-finish').classList.remove('on');
+  $('s-play').classList.add('on');
+  ensureGuessMap();
+  setTimeout(() => gmap.invalidateSize(), 60);
+  if (gstate.queue.length === 0) { finishPlay(); return; }
+  renderGuess();
+}
+
+function renderGuess(){
+  gstate.phase = 'guessing'; gstate.guess = null;
+  clearGuessLayers(); setGExpanded(false);
+  if (gmap) gmap.setView([20, 0], 2);
+  const ph = gstate.queue[gstate.idx];
+  $('g-round').textContent = `${gstate.idx + 1} / ${gstate.queue.length}`;
+  $('g-result').style.display = 'none';
+  $('g-confirm').style.display = ''; $('g-confirm').disabled = true; $('g-confirm').textContent = 'Tap the map to guess';
+  $('g-next').style.display = 'none';
+  const img = $('g-photo');
+  img.style.visibility = 'hidden'; $('g-spin').classList.add('on');
+  img.onload = () => { $('g-spin').classList.remove('on'); img.style.visibility = 'visible'; };
+  img.onerror = () => { $('g-spin').classList.remove('on'); };
+  img.src = ph.display_url;
+}
+
+async function confirmGuess2(){
+  if (!gstate.guess || gstate.phase !== 'guessing') return;
+  const ph = gstate.queue[gstate.idx];
+  $('g-confirm').disabled = true; $('g-confirm').textContent = 'scoring…';
+  const { data, error } = await sb.rpc('submit_guess', {
+    p_photo_id: ph.id, p_player_id: session.playerId,
+    p_guess_lat: gstate.guess.lat, p_guess_lng: gstate.guess.lng,
+  });
+  if (error) { $('g-confirm').disabled = false; $('g-confirm').textContent = 'Confirm guess'; alert('Error: ' + error.message); return; }
+  const res = Array.isArray(data) ? data[0] : data;
+  const truth = { lat: res.truth_lat, lng: res.truth_lng };
+
+  // Client-side scoring (shared geo.js) for display — matches the server authority.
+  const { distanceKm, points } = scoreGuess(truth, gstate.guess);
+
+  gstate.phase = 'revealed';
+  addDone(ph.id);
+  gstate.score += res.points;                 // server value is the source of truth
+  $('g-score').textContent = gstate.score.toLocaleString();
+
+  setGExpanded(true);
+  const icon = L.divIcon({ className: '', html: '<div class="truthpin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
+  gTruthMarker = L.marker(truth, { icon }).bindTooltip('Actual location').addTo(gmap);
+  gLine = L.polyline([truth, gstate.guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
+  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gstate.guess]).pad(.25)); }, 280);
+
+  $('g-dist').textContent = formatKm(distanceKm);
+  $('g-pts').textContent = points.toLocaleString();
+  $('g-result').style.display = 'flex';
+  $('g-confirm').style.display = 'none';
+  $('g-next').style.display = '';
+  $('g-next').textContent = (gstate.idx + 1 < gstate.queue.length) ? 'Next photo' : 'Finish';
+}
+
+function nextGuess(){
+  if (gstate.idx + 1 < gstate.queue.length) { gstate.idx++; renderGuess(); }
+  else finishPlay();
+}
+
+async function finishPlay(){
+  gstate.phase = 'done';
+  $('g-finish-sub').textContent = gstate.queue.length
+    ? `You scored ${gstate.score.toLocaleString()} this round.`
+    : 'No new photos for you to guess yet — check back after others upload.';
+  const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
+  renderLeaderboard($('g-finish-lb'), lb || []);
+  $('g-finish').classList.add('on');
+}
+
+function exitPlay(){ $('s-play').classList.remove('on'); refreshLobby(); }
+
+// play wiring
+$('btn-start').addEventListener('click', enterPlay);
+$('g-confirm').addEventListener('click', confirmGuess2);
+$('g-next').addEventListener('click', nextGuess);
+$('g-exit').addEventListener('click', exitPlay);
+$('g-back').addEventListener('click', exitPlay);
+$('g-expand').addEventListener('click', () => setGExpanded(!$('g-mapPanel').classList.contains('expanded')));
 
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
