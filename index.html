@@ -156,6 +156,8 @@
 
     <div class="card">
       <span class="mut">Pool: <b id="pool-count">0</b> photos · <b id="togo-count">0</b> for you to guess.</span>
+      <button id="btn-ready" class="btn btn-ghost" disabled>I'm ready</button>
+      <span class="mut" id="ready-line"></span>
       <button id="btn-start" class="btn btn-primary" disabled>Start guessing</button>
     </div>
 
@@ -330,6 +332,7 @@ let pollTimer = null;
 let roomPPP = 3;       // photos each player adds (from the room)
 let roomSPP = 90;      // seconds per photo (null = no limit)
 let mySelected = null; // Set of my photo ids chosen for the pool (null until first render)
+let prevStatus = null; // last seen room status (to detect the lobby->playing transition)
 
 async function enterLobby(){
   // Validate the saved session still points to a live room + player
@@ -341,6 +344,7 @@ async function enterLobby(){
   roomPPP = room.photos_per_player || 3;
   roomSPP = room.seconds_per_photo;   // may be null (no limit)
   mySelected = null;
+  prevStatus = null;
   session.code = room.code; saveSession(session);
   $('room-code').textContent = session.code;
   $('ppp-hint').textContent = `pick ${roomPPP} to add to the pool`;
@@ -350,7 +354,7 @@ async function enterLobby(){
   pollTimer = setInterval(refreshLobby, 3000);
 }
 
-function resetPlay(){ clearTimer(); gstate.phase = 'idle'; gstate.queue = []; gstate.idx = 0; }
+function resetPlay(){ clearTimer(); gstate.phase = 'idle'; gstate.queue = []; gstate.idx = 0; prevStatus = null; }
 function leaveRoom(){
   clearInterval(pollTimer); resetPlay();
   localStorage.removeItem(LS); session = null; mySelected = null;
@@ -363,25 +367,53 @@ function invalidSession(msg){
 }
 
 async function refreshLobby(){
-  // roster
+  // room status drives the ready-gate / start-together
+  const { data: room } = await sb.from('rooms').select('status').eq('id', session.roomId).maybeSingle();
+  const status = room ? room.status : 'lobby';
+
+  // roster (+ ready flags)
   const { data: players } = await sb.from('players')
-    .select('id,name').eq('room_id', session.roomId).order('created_at');
+    .select('id,name,ready').eq('room_id', session.roomId).order('created_at');
+  let myReady = false, readyCount = 0, total = 0;
   if (players){
-    $('player-count').textContent = `(${players.length}/6)`;
+    total = players.length;
+    readyCount = players.filter(p => p.ready).length;
+    myReady = !!players.find(p => p.id === session.playerId && p.ready);
+    $('player-count').textContent = `(${total}/6)`;
     $('players').innerHTML = players.map(p =>
-      `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}</span>`).join('');
+      `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}${p.ready ? ' ✓' : ''}</span>`).join('');
   }
-  // ready photos (SAFE view). Pooled ones are what everyone guesses (own included).
+
+  // pool (own included) + my photos
   const { data: pool } = await sb.from('photos_public')
     .select('id,uploader_id,in_pool,display_url').eq('room_id', session.roomId).eq('status', 'ready');
-  const ready = pool || [];
-  const pooled = ready.filter(p => p.in_pool);
+  const all = pool || [];
+  const pooled = all.filter(p => p.in_pool);
+  const myPooled = pooled.filter(p => p.uploader_id === session.playerId).length;
   const done = getDone();
-  const togo = pooled.filter(p => !done.has(p.id));     // everyone guesses the whole pool
+  const togo = pooled.filter(p => !done.has(p.id));
   $('pool-count').textContent = pooled.length;
   $('togo-count').textContent = togo.length;
-  $('btn-start').disabled = togo.length === 0;
-  renderMyPhotos(ready.filter(p => p.uploader_id === session.playerId));
+  renderMyPhotos(all.filter(p => p.uploader_id === session.playerId));
+
+  // Ready button: enabled once you've pooled your share
+  const canReady = myPooled >= roomPPP;
+  const rb = $('btn-ready');
+  rb.disabled = !canReady && !myReady;
+  rb.dataset.ready = myReady ? '1' : '0';
+  rb.textContent = myReady ? 'Ready ✓ — tap to undo' : (canReady ? "I'm ready" : `Pool ${roomPPP} photo(s) first`);
+  $('ready-line').textContent = `${readyCount} / ${total} ready` + (status === 'playing' ? ' · game started!' : '');
+
+  // Start: available once the room is playing (manual entry / resume)
+  $('btn-start').disabled = !(status === 'playing' && togo.length > 0);
+
+  // Start together: auto-enter the moment the room flips to playing
+  if (prevStatus !== null && prevStatus !== 'playing' && status === 'playing'
+      && !$('s-play').classList.contains('on') && togo.length > 0) {
+    enterPlay();
+  }
+  prevStatus = status;
+
   // leaderboard
   const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
   renderLeaderboard($('leaderboard'), lb || []);
@@ -722,6 +754,13 @@ function exitPlay(){ clearTimer(); $('s-play').classList.remove('on'); refreshLo
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
 $('btn-pool').addEventListener('click', submitPool);
+$('btn-ready').addEventListener('click', async () => {
+  const next = $('btn-ready').dataset.ready !== '1';
+  $('btn-ready').disabled = true;
+  const { error } = await sb.rpc('set_ready', { p_player_id: session.playerId, p_ready: next });
+  if (error) alert('Error: ' + error.message);
+  refreshLobby();
+});
 $('btn-start').addEventListener('click', enterPlay);
 $('g-confirm').addEventListener('click', confirmGuess2);
 $('g-next').addEventListener('click', nextGuess);

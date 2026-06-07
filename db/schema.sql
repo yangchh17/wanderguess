@@ -24,6 +24,7 @@ create table if not exists public.players (
   room_id    uuid not null references public.rooms(id) on delete cascade,
   name       text not null,
   token      uuid not null default gen_random_uuid(),  -- secret identity
+  ready      boolean not null default false,           -- ready-gate
   created_at timestamptz not null default now()
 );
 
@@ -163,6 +164,25 @@ begin
 end; $$;
 revoke all on function public.set_pool(uuid, uuid[]) from public;
 grant execute on function public.set_pool(uuid, uuid[]) to anon;
+
+-- Ready-gate: toggle a player's ready; when all in the room are ready the room
+-- flips to 'playing' (one-way). Clients poll status and start together.
+create or replace function public.set_ready(p_player_id uuid, p_ready boolean)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_total int; v_ready int; v_status text;
+begin
+  update players set ready = p_ready where id = p_player_id returning room_id into v_room;
+  if v_room is null then raise exception 'invalid player'; end if;
+  select count(*), count(*) filter (where ready) into v_total, v_ready
+    from players where room_id = v_room;
+  if v_total > 0 and v_ready = v_total then
+    update rooms set status = 'playing' where id = v_room and status = 'lobby';
+  end if;
+  select status into v_status from rooms where id = v_room;
+  return v_status;
+end; $$;
+revoke all on function public.set_ready(uuid, boolean) from public;
+grant execute on function public.set_ready(uuid, boolean) to anon;
 
 -- ============================================================
 --  SEAM FOR LATER (DO NOT BUILD NOW):
