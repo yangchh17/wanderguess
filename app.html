@@ -197,8 +197,8 @@
 
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { makeDisplaySource, isHeic } from './shared/media.js';
-import { scoreGuess, formatKm } from './shared/geo.js';
+import { makeDisplaySource, isHeic } from './shared/media.js?v=2';
+import { scoreGuess, formatKm } from './shared/geo.js?v=2';
 
 const $ = id => document.getElementById(id);
 const show = s => document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));

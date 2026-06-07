@@ -27,15 +27,37 @@ export async function heicToJpeg(file, quality = 0.85) {
 }
 
 /**
- * Produce a display-source file for upload:
- *  - HEIC  -> decoded JPEG Blob (so the server can process it)
- *  - other -> the original file unchanged (server re-encodes/strips it)
- * The server downsizes + strips EXIF regardless, so this is just "make it JPEG".
+ * Produce a downscaled, EXIF-stripped JPEG for upload.
+ * Decodes (HEIC via heic2any, else native), draws to a canvas capped at `maxDim`,
+ * and re-encodes to JPEG. Keeping it small on the client means the server never
+ * has to decode a full 12MP image (which was OOM-ing the Edge Function), and
+ * uploads are far faster on mobile. The canvas re-encode also drops all EXIF.
  */
-export async function makeDisplaySource(file) {
-  if (isHeic(file)) {
-    const blob = await heicToJpeg(file);
+export async function makeDisplaySource(file, maxDim = 1280, quality = 0.82) {
+  let srcBlob = file;
+  if (isHeic(file)) srcBlob = await heicToJpeg(file);
+
+  const url = URL.createObjectURL(srcBlob);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error('image decode failed'));
+      im.src = url;
+    });
+    let w = img.naturalWidth, h = img.naturalHeight;
+    if (!w || !h) throw new Error('empty image');
+    if (Math.max(w, h) > maxDim) {
+      const s = maxDim / Math.max(w, h);
+      w = Math.round(w * s); h = Math.round(h * s);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    const blob = await new Promise((res, rej) =>
+      canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/jpeg', quality));
     return { blob, contentType: 'image/jpeg', ext: 'jpg' };
+  } finally {
+    URL.revokeObjectURL(url);
   }
-  return { blob: file, contentType: file.type || 'application/octet-stream', ext: 'bin' };
 }
