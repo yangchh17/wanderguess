@@ -348,13 +348,14 @@ async function enterLobby(){
   pollTimer = setInterval(refreshLobby, 3000);
 }
 
+function resetPlay(){ clearTimer(); gstate.phase = 'idle'; gstate.queue = []; gstate.idx = 0; }
 function leaveRoom(){
-  clearInterval(pollTimer);
+  clearInterval(pollTimer); resetPlay();
   localStorage.removeItem(LS); session = null; mySelected = null;
   show('s-home'); $('home-msg').textContent = '';
 }
 function invalidSession(msg){
-  clearInterval(pollTimer);
+  clearInterval(pollTimer); resetPlay();
   localStorage.removeItem(LS); session = null; mySelected = null;
   show('s-home'); if (msg) msgHome(msg, false);
 }
@@ -590,10 +591,13 @@ function renderTime(){
   $('g-time').textContent = fmtTime(Math.max(0, gRemaining));
   $('g-time').classList.toggle('low', gRemaining <= 10);
 }
-function startTimer(){
+function startTimer(){ gRemaining = (roomSPP == null) ? null : roomSPP; runTimer(); }
+function resumeTimer(){ runTimer(); }   // continue from the saved gRemaining
+function runTimer(){
   clearTimer();
-  if (roomSPP == null) { $('g-time').textContent = '∞'; $('g-time').classList.remove('low'); return; }
-  gRemaining = roomSPP; renderTime();
+  if (roomSPP == null || gRemaining == null) { $('g-time').textContent = '∞'; $('g-time').classList.remove('low'); return; }
+  renderTime();
+  if (gRemaining <= 0) { onTimeUp(); return; }
   gTimerInt = setInterval(() => {
     gRemaining -= 1; renderTime();
     if (gRemaining <= 0) { clearTimer(); onTimeUp(); }
@@ -617,6 +621,15 @@ function clearGuessLayers(){
 }
 
 async function enterPlay(){
+  // Resume an in-progress round (clock continues where it left off) instead of restarting.
+  if ((gstate.phase === 'guessing' || gstate.phase === 'revealed') && gstate.queue[gstate.idx]) {
+    $('s-play').classList.add('on');
+    ensureGuessMap();
+    setTimeout(() => gmap.invalidateSize(), 60);
+    if (gstate.phase === 'guessing') resumeTimer();
+    return;
+  }
+
   const { data: pool } = await sb.from('photos_public')
     .select('id,display_url,uploader_id,in_pool').eq('room_id', session.roomId)
     .eq('status', 'ready').eq('in_pool', true).order('created_at');
