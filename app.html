@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <title>Wanderguess · multiplayer</title>
+  <script src="config.js"></script>
+  <script src="vendor/exifr.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{ --bg:#0f1117; --card:#1a1d27; --line:#2a2d3a; --ink:#e8eaf0; --mut:#8b8fa8; --accent:#7c9ef8; --good:#7cf8a8; --bad:#f87c7c; }
+    body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink);
+      min-height:100dvh;display:flex;flex-direction:column;
+      padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));gap:16px}
+    h1{font-size:1.5rem;color:var(--accent);letter-spacing:-.02em}
+    h2{font-size:1.05rem;color:var(--accent)}
+    .mut{color:var(--mut);font-size:.85rem;line-height:1.5}
+    .screen{display:none;flex-direction:column;gap:16px;flex:1 1 auto}
+    .screen.on{display:flex}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+    input{width:100%;padding:14px;font-size:1rem;border-radius:10px;border:1px solid var(--line);
+      background:#12141e;color:var(--ink)}
+    input::placeholder{color:#555a70}
+    .btn{width:100%;padding:15px;border:none;border-radius:11px;font-size:1rem;font-weight:700;cursor:pointer}
+    .btn-primary{background:var(--accent);color:#0f1117}
+    .btn-primary:disabled{background:#2a2d3a;color:#555a70}
+    .btn-ghost{background:#2a2d3a;color:#adb4d4}
+    .code-big{font-size:2.4rem;font-weight:800;letter-spacing:.3em;color:var(--good);text-align:center;
+      background:#12141e;border-radius:12px;padding:16px}
+    .players{display:flex;flex-wrap:wrap;gap:8px}
+    .chip{background:#12141e;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:.85rem}
+    .chip.me{border-color:var(--accent);color:var(--accent)}
+    .uplist{display:flex;flex-direction:column;gap:8px}
+    .up{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:#12141e;border:1px solid var(--line);font-size:.85rem}
+    .up .b{font-size:1.1rem}
+    .up.ok{border-color:#2c5}.up.bad{border-color:#5a3a3a;opacity:.8}.up .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .msg{font-size:.85rem;min-height:1.2em}
+    .msg.err{color:var(--bad)} .msg.ok{color:var(--good)}
+    label.filepick{display:block;text-align:center;padding:18px;border:2px dashed #3a3d50;border-radius:12px;color:#adb4d4;font-weight:600}
+    label.filepick input{display:none}
+  </style>
+</head>
+<body>
+  <h1>Wanderguess</h1>
+
+  <!-- ───────── Home ───────── -->
+  <section id="s-home" class="screen on">
+    <div class="card">
+      <h2>Start a game</h2>
+      <input id="name" placeholder="Your name" maxlength="20" />
+      <button id="btn-create" class="btn btn-primary">Create a room</button>
+    </div>
+    <div class="card">
+      <h2>Join a game</h2>
+      <input id="join-code" placeholder="Room code (e.g. 7KQ2)" maxlength="6" autocapitalize="characters" />
+      <button id="btn-join" class="btn btn-ghost">Join room</button>
+    </div>
+    <div id="home-msg" class="msg"></div>
+  </section>
+
+  <!-- ───────── Lobby ───────── -->
+  <section id="s-lobby" class="screen">
+    <div class="card">
+      <span class="mut">Room code — share it</span>
+      <div id="room-code" class="code-big">····</div>
+    </div>
+
+    <div class="card">
+      <h2>Players <span class="mut" id="player-count"></span></h2>
+      <div id="players" class="players"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your photos <span class="mut">(1–2, must have GPS)</span></h2>
+      <label class="filepick">
+        Add photos from your phone
+        <input type="file" id="photo-input" accept="image/*" multiple />
+      </label>
+      <div id="up-msg" class="msg"></div>
+      <div id="uplist" class="uplist"></div>
+    </div>
+
+    <div class="card">
+      <span class="mut">Pool: <b id="pool-count">0</b> photos ready across the room.</span>
+      <button id="btn-start" class="btn btn-primary" disabled>Start guessing (next build step)</button>
+    </div>
+  </section>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { makeDisplaySource, isHeic } from './shared/media.js';
+
+const $ = id => document.getElementById(id);
+const show = s => document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));
+
+if (!window.SUPA || window.SUPA.url.includes('YOUR-PROJECT')) {
+  $('home-msg').className = 'msg err';
+  $('home-msg').textContent = 'Supabase not configured — copy config.example.js to config.js and fill in your project URL + anon key.';
+}
+const sb = createClient(window.SUPA.url, window.SUPA.anonKey);
+
+// ---- identity (per browser, persisted) ----
+const LS = 'geoguessur.session';
+let session = JSON.parse(localStorage.getItem(LS) || 'null'); // {roomId, code, playerId, name}
+function saveSession(s){ session = s; localStorage.setItem(LS, JSON.stringify(s)); }
+
+function randomCode(n = 4){
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  return Array.from({length:n}, () => A[Math.floor(Math.random()*A.length)]).join('');
+}
+
+// UUID that works in NON-secure contexts too (plain http:// on the LAN),
+// where crypto.randomUUID() is unavailable.
+function uuid(){
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues){
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map(x => x.toString(16).padStart(2,'0'));
+    return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+// ---- create room ----
+$('btn-create').addEventListener('click', async () => {
+  const name = $('name').value.trim();
+  if (!name) return msgHome('Enter your name first.', true);
+  $('btn-create').disabled = true;
+  try {
+    let room = null;
+    for (let i = 0; i < 5 && !room; i++) {
+      const code = randomCode();
+      const { data, error } = await sb.from('rooms').insert({ code }).select().single();
+      if (!error) room = data;                 // unique-violation => retry
+    }
+    if (!room) throw new Error('could not allocate a room code');
+    const { data: player, error: pe } = await sb.from('players')
+      .insert({ room_id: room.id, name }).select().single();
+    if (pe) throw pe;
+    saveSession({ roomId: room.id, code: room.code, playerId: player.id, name });
+    enterLobby();
+  } catch (e) { msgHome('Error: ' + e.message, true); }
+  finally { $('btn-create').disabled = false; }
+});
+
+// ---- join room ----
+$('btn-join').addEventListener('click', async () => {
+  const name = $('name').value.trim();
+  const code = $('join-code').value.trim().toUpperCase();
+  if (!name) return msgHome('Enter your name first.', true);
+  if (!code) return msgHome('Enter a room code.', true);
+  $('btn-join').disabled = true;
+  try {
+    const { data: room, error } = await sb.from('rooms').select('*').eq('code', code).maybeSingle();
+    if (error) throw error;
+    if (!room) return msgHome('No room with that code.', true);
+    const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', room.id);
+    if ((count ?? 0) >= 6) return msgHome('That room is full (6 players).', true);
+    const { data: player, error: pe } = await sb.from('players')
+      .insert({ room_id: room.id, name }).select().single();
+    if (pe) throw pe;
+    saveSession({ roomId: room.id, code: room.code, playerId: player.id, name });
+    enterLobby();
+  } catch (e) { msgHome('Error: ' + e.message, true); }
+  finally { $('btn-join').disabled = false; }
+});
+
+function msgHome(t, err){ $('home-msg').className = 'msg ' + (err ? 'err' : 'ok'); $('home-msg').textContent = t; }
+
+// ---- lobby ----
+let pollTimer = null;
+function enterLobby(){
+  $('room-code').textContent = session.code;
+  show('s-lobby');
+  refreshLobby();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(refreshLobby, 3000);
+}
+
+async function refreshLobby(){
+  // roster
+  const { data: players } = await sb.from('players')
+    .select('id,name').eq('room_id', session.roomId).order('created_at');
+  if (players){
+    $('player-count').textContent = `(${players.length}/6)`;
+    $('players').innerHTML = players.map(p =>
+      `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}</span>`).join('');
+  }
+  // pool count (from the SAFE view — no truth columns exist there)
+  const { count } = await sb.from('photos_public')
+    .select('id', { count: 'exact', head: true })
+    .eq('room_id', session.roomId).eq('status', 'ready');
+  $('pool-count').textContent = count ?? 0;
+}
+
+// ---- upload ----
+$('photo-input').addEventListener('change', async (e) => {
+  const files = [...e.target.files].slice(0, 2);
+  e.target.value = '';
+  if (!files.length) return;
+  for (const file of files) await uploadOne(file);
+  refreshLobby();
+});
+
+async function uploadOne(file){
+  const row = document.createElement('div');
+  row.className = 'up';
+  row.innerHTML = `<span class="b">⏳</span><span class="nm">${escapeHtml(file.name)}</span><span class="st mut">uploading…</span>`;
+  $('uplist').appendChild(row);
+  const setState = (cls, icon, text) => {
+    row.className = 'up ' + cls;
+    row.querySelector('.b').textContent = icon;
+    row.querySelector('.st').textContent = text;
+  };
+
+  try {
+    // ── DIAGNOSTIC: read GPS in the BROWSER (moment 1), before any upload ──
+    // This is where iOS still has the location. Tells us if the web-parse
+    // path works in the real app (vs. the server seeing stripped bytes).
+    let clientGps = null;
+    try { clientGps = await exifr.gps(file); } catch {}
+    const hasClientGps = clientGps && clientGps.latitude != null && clientGps.longitude != null;
+    if (hasClientGps) {
+      setState('', '📍', `browser GPS ✓ ${clientGps.latitude.toFixed(4)}, ${clientGps.longitude.toFixed(4)} — uploading…`);
+    } else {
+      setState('', '⚪', 'browser GPS: none — uploading…');
+    }
+    console.log('[client-gps]', file.name, file.type, '=>', hasClientGps ? clientGps : 'NONE');
+
+    const photoId = uuid();
+    const base = `${session.roomId}/${photoId}`;
+    const origPath = `${base}/orig`;
+
+    // Upload the ORIGINAL (private; server reads the truth from it).
+    const u1 = await sb.storage.from('uploads').upload(origPath, file, {
+      contentType: file.type || 'application/octet-stream' });   // no upsert (unique path)
+    if (u1.error) throw u1.error;
+
+    // Display source: HEIC -> decoded JPEG (separate file); else reuse original.
+    let displaySrcPath = origPath;
+    if (isHeic(file)) {
+      setState('', '⚙️', 'decoding HEIC…');
+      const { blob, contentType } = await makeDisplaySource(file);
+      displaySrcPath = `${base}/disp.jpg`;
+      const u2 = await sb.storage.from('uploads').upload(displaySrcPath, blob, { contentType });
+      if (u2.error) throw u2.error;
+    }
+
+    setState('', '🛰️', 'extracting location…');
+    const { data, error } = await sb.functions.invoke('process-photo', {
+      body: { roomId: session.roomId, uploaderId: session.playerId, photoId, originalPath: origPath, displaySrcPath },
+    });
+    if (error) throw error;
+
+    const clientStr = hasClientGps
+      ? `browser GPS ✓ ${clientGps.latitude.toFixed(4)},${clientGps.longitude.toFixed(4)}`
+      : 'browser GPS: none';
+    if (data.status === 'ready')         setState('ok', '✅', `added to pool · ${clientStr}`);
+    else if (data.status === 'rejected') setState('bad', '❌', `server: stripped · ${clientStr}`);
+    else                                 setState('bad', '⚠️', `unexpected · ${clientStr}`);
+  } catch (e) {
+    setState('bad', '⚠️', 'error: ' + (e.message || e));
+  }
+}
+
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// resume an existing session if present
+if (session && session.roomId) enterLobby();
+</script>
+</body>
+</html>

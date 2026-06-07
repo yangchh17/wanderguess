@@ -1,0 +1,15 @@
+# Personal data — never commit (your real geotagged photos!)
+photoset/
+
+# Local Supabase config (publishable key is public-safe, but keep it out of the repo)
+config.js
+
+# Local tooling / editor / agent
+.claude/
+.vscode/
+.idea/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+*.log

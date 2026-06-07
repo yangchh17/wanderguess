@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>iOS GPS upload check</title>
+  <script src="vendor/exifr.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#0f1117;color:#e8eaf0;
+      min-height:100dvh;padding:18px;display:flex;flex-direction:column;gap:14px}
+    h1{font-size:1.2rem;color:#7c9ef8}
+    p.sub{font-size:.84rem;color:#8b8fa8;line-height:1.5}
+    label.pick{display:block;padding:18px;border:2px dashed #3a3d50;border-radius:12px;
+      text-align:center;color:#adb4d4;font-size:1rem;font-weight:600}
+    input[type=file]{display:none}
+    #summary{display:none;font-size:1.05rem;font-weight:700;padding:12px 14px;
+      border-radius:10px;background:#1a1d27;border:1px solid #2a2d3a}
+    #summary .g{color:#7cf8a8}
+    #list{display:flex;flex-direction:column;gap:8px}
+    .item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+      background:#1a1d27;border:1px solid #2a2d3a;font-size:.82rem}
+    .item.ok{border-color:#2c5}
+    .item.bad{border-color:#5a3a3a;opacity:.7}
+    .badge{font-size:1.1rem;flex:0 0 auto}
+    .meta{flex:1 1 auto;min-width:0}
+    .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e8eaf0}
+    .coords{color:#8b8fa8;font-size:.74rem}
+    .type{color:#6b6f85;font-size:.7rem}
+    .hint{font-size:.76rem;color:#6b6f85;line-height:1.5}
+  </style>
+</head>
+<body>
+  <h1>📍 Bulk GPS upload check</h1>
+  <p class="sub">Select up to ~10 photos at once. We'll flag which ones still carry a
+  GPS coordinate after the upload — those are the ones that could become game rounds.</p>
+
+  <label class="pick">
+    Select photos from your library
+    <input type="file" id="f" accept="image/*" multiple />
+  </label>
+
+  <div id="summary"></div>
+  <div id="list"></div>
+
+  <p class="hint">If the count of located photos here matches what you'd expect, the
+  "upload your own" model works on iOS. Note the <b>Type</b> shown — if iOS hands over
+  <code>image/jpeg</code>, HEIC display is solved for free.</p>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// Read GPS for one file. Returns {gps, type}.
+async function checkFile(file) {
+  let gps = null;
+  try { gps = await exifr.gps(file); } catch {}
+  const has = gps && gps.latitude != null && gps.longitude != null;
+  return { name: file.name, type: file.type || '(none)', has, gps: has ? gps : null };
+}
+
+// Limited-concurrency map so 10 reads don't stampede.
+async function mapLimit(items, limit, fn) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) { const idx = i++; await fn(items[idx], idx); }
+  });
+  await Promise.all(workers);
+}
+
+$('f').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+
+  $('summary').style.display = 'block';
+  $('summary').textContent = `Reading ${files.length} photos…`;
+  $('list').innerHTML = '';
+
+  // pre-create rows in order
+  const rows = files.map(f => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `<span class="badge">⏳</span><div class="meta">
+      <div class="name">${f.name}</div><div class="coords">checking…</div>
+      <div class="type">${f.type || '(none)'}</div></div>`;
+    $('list').appendChild(el);
+    return el;
+  });
+
+  let found = 0, done = 0;
+  await mapLimit(files, 4, async (file, idx) => {
+    const r = await checkFile(file);
+    if (r.has) found++;
+    done++;
+    const el = rows[idx];
+    el.className = 'item ' + (r.has ? 'ok' : 'bad');
+    el.querySelector('.badge').textContent = r.has ? '✅' : '❌';
+    el.querySelector('.coords').textContent = r.has
+      ? `${r.gps.latitude.toFixed(5)}, ${r.gps.longitude.toFixed(5)}`
+      : 'no location data';
+    $('summary').innerHTML =
+      `<span class="g">${found}</span> of ${files.length} photos have a location` +
+      (done < files.length ? ` &nbsp;(${done}/${files.length} checked…)` : '');
+  });
+});
+</script>
+</body>
+</html>
