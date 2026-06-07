@@ -224,6 +224,12 @@ const LS = 'geoguessur.session';
 let session = JSON.parse(localStorage.getItem(LS) || 'null'); // {roomId, code, playerId, name}
 function saveSession(s){ session = s; localStorage.setItem(LS, JSON.stringify(s)); }
 
+// Per-room identity, kept across Leave/Join so rejoining reuses the same player
+// instead of creating a duplicate.
+const IDS = 'wg.ids';
+function recallId(code){ try { return (JSON.parse(localStorage.getItem(IDS) || '{}'))[code] || null; } catch { return null; } }
+function rememberId(code, rec){ try { const m = JSON.parse(localStorage.getItem(IDS) || '{}'); m[code] = rec; localStorage.setItem(IDS, JSON.stringify(m)); } catch {} }
+
 function randomCode(n = 4){
   const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   return Array.from({length:n}, () => A[Math.floor(Math.random()*A.length)]).join('');
@@ -262,6 +268,7 @@ $('btn-create').addEventListener('click', async () => {
     const { data: player, error: pe } = await sb.from('players')
       .insert({ room_id: room.id, name }).select().single();
     if (pe) throw pe;
+    rememberId(room.code, { roomId: room.id, playerId: player.id, name });
     saveSession({ roomId: room.id, code: room.code, playerId: player.id, name });
     enterLobby();
   } catch (e) { msgHome('Error: ' + e.message, true); }
@@ -279,12 +286,25 @@ $('btn-join').addEventListener('click', async () => {
     const { data: room, error } = await sb.from('rooms').select('*').eq('code', code).maybeSingle();
     if (error) throw error;
     if (!room) return msgHome('No room with that code.', true);
-    const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', room.id);
-    if ((count ?? 0) >= 6) return msgHome('That room is full (6 players).', true);
-    const { data: player, error: pe } = await sb.from('players')
-      .insert({ room_id: room.id, name }).select().single();
-    if (pe) throw pe;
-    saveSession({ roomId: room.id, code: room.code, playerId: player.id, name });
+
+    // Rejoin as the same player if we have a still-valid identity for this room.
+    let player = null;
+    const prior = recallId(room.code);
+    if (prior && prior.roomId === room.id) {
+      const { data: existing } = await sb.from('players')
+        .select('id,name').eq('id', prior.playerId).eq('room_id', room.id).maybeSingle();
+      if (existing) player = existing;
+    }
+    if (!player) {
+      const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', room.id);
+      if ((count ?? 0) >= 6) return msgHome('That room is full (6 players).', true);
+      const { data: np, error: pe } = await sb.from('players')
+        .insert({ room_id: room.id, name }).select().single();
+      if (pe) throw pe;
+      player = np;
+      rememberId(room.code, { roomId: room.id, playerId: player.id, name });
+    }
+    saveSession({ roomId: room.id, code: room.code, playerId: player.id, name: player.name || name });
     enterLobby();
   } catch (e) { msgHome('Error: ' + e.message, true); }
   finally { $('btn-join').disabled = false; }
