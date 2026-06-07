@@ -465,7 +465,7 @@ $('pinmap-cancel').addEventListener('click', () => closePin(null));
 
 // ──────────────── Upload (hybrid: auto-EXIF, else pin) ────────────────
 $('photo-input').addEventListener('change', async (e) => {
-  const files = [...e.target.files].slice(0, 2);
+  const files = [...e.target.files].slice(0, 10);   // allow uploading several; pick N for the pool
   e.target.value = '';
   if (!files.length) return;
   for (const file of files) await uploadOne(file);   // sequential (one pin at a time)
@@ -548,9 +548,13 @@ function ensureGuessMap(){
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(gmap);
   new ResizeObserver(() => gmap.invalidateSize()).observe(document.getElementById('g-map'));
+  // Desktop (mouse): expand on hover, collapse on leave (while guessing).
+  const panel = $('g-mapPanel');
+  panel.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') setGExpanded(true); });
+  panel.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && gstate.phase === 'guessing') setGExpanded(false); });
   gmap.on('click', (e) => {
     if (gstate.phase !== 'guessing') return;
-    // On a small (collapsed) map, the first tap just expands it (touch-friendly).
+    // Touch: first tap expands the small map; next tap drops the pin.
     if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
     gstate.guess = { lat: e.latlng.lat, lng: e.latlng.lng };
     const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
