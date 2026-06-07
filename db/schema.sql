@@ -182,6 +182,38 @@ $$;
 revoke all on function public.set_ready(uuid, boolean) from public;
 grant execute on function public.set_ready(uuid, boolean) to anon;
 
+-- Reveal results: only photos this player already guessed (truth safe post-guess).
+create or replace function public.get_results(p_player_id uuid)
+returns table(photo_id uuid, display_url text,
+              truth_lat double precision, truth_lng double precision,
+              guess_lat double precision, guess_lng double precision,
+              distance_km double precision, points integer)
+language sql security definer set search_path = public as $$
+  select g.photo_id, ph.display_url, ph.truth_lat, ph.truth_lng,
+         g.guess_lat, g.guess_lng, g.distance_km, g.points
+  from guesses g join photos ph on ph.id = g.photo_id
+  where g.player_id = p_player_id
+  order by g.created_at;
+$$;
+revoke all on function public.get_results(uuid) from public;
+grant execute on function public.get_results(uuid) to anon;
+
+-- Host-only rematch: clear pool + guesses + ready, back to lobby (same room).
+create or replace function public.reset_room(p_player_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_host uuid;
+begin
+  select room_id into v_room from players where id = p_player_id;
+  if v_room is null then raise exception 'invalid player'; end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can start a new game'; end if;
+  delete from photos where room_id = v_room;          -- cascades guesses
+  update players set ready = false where room_id = v_room;
+  update rooms set status = 'lobby' where id = v_room;
+end; $$;
+revoke all on function public.reset_room(uuid) from public;
+grant execute on function public.reset_room(uuid) to anon;
+
 -- Host = earliest player in the room; only the host can start.
 create or replace function public.start_game(p_player_id uuid)
 returns text language plpgsql security definer set search_path = public as $$

@@ -55,6 +55,14 @@
     label.filepick{display:block;text-align:center;padding:18px;border:2px dashed #3a3d50;border-radius:12px;color:#adb4d4;font-weight:600}
     label.filepick input{display:none}
 
+    /* results / reveal map */
+    #s-results{position:fixed;inset:0;z-index:1100;background:var(--bg);display:none;flex-direction:column}
+    #s-results.on{display:flex}
+    #r-top{display:flex;align-items:center;gap:12px;padding:max(12px,env(safe-area-inset-top)) 14px 12px;border-bottom:1px solid var(--line)}
+    #r-top .t{font-weight:700;color:var(--accent)}
+    #r-top .btn{width:auto;padding:9px 13px}
+    #r-map{flex:1 1 0;min-height:0}
+
     /* pin-a-location overlay */
     .pinmap{position:fixed;inset:0;z-index:1000;background:var(--bg);display:none;flex-direction:column}
     .pinmap.on{display:flex}
@@ -168,6 +176,8 @@
     <div class="card">
       <h2>Leaderboard</h2>
       <div id="leaderboard" class="lb"><span class="mut">No scores yet.</span></div>
+      <button id="btn-results" class="btn btn-ghost">See all locations</button>
+      <button id="btn-newgame" class="btn btn-ghost" style="display:none">Start a new game (resets room)</button>
     </div>
   </section>
 
@@ -202,8 +212,18 @@
     <h2>Round complete</h2>
     <div class="mut" id="g-finish-sub"></div>
     <div id="g-finish-lb" class="lb"></div>
+    <button id="g-reveal" class="btn btn-primary" style="width:min(440px,92vw)">See all locations</button>
     <button id="g-back" class="btn btn-ghost" style="width:min(440px,92vw)">Back to lobby</button>
   </div>
+</div>
+
+<!-- ───────── Results / reveal map ───────── -->
+<div id="s-results">
+  <div id="r-top">
+    <button id="r-back" class="btn btn-ghost">← Lobby</button>
+    <div class="t">Where they were</div>
+  </div>
+  <div id="r-map"></div>
 </div>
 
 <!-- Pin-a-location overlay (manual fallback when EXIF has no GPS) -->
@@ -430,6 +450,15 @@ async function refreshLobby(){
   const bs = $('btn-start');
   bs.style.display = status === 'playing' ? '' : 'none';
   bs.disabled = !(status === 'playing' && togo.length > 0);
+
+  // Host can reset for a new game (rematch)
+  $('btn-newgame').style.display = amHost ? '' : 'none';
+
+  // If the host reset the room while you were playing, drop back to the lobby.
+  if (status === 'lobby' && $('s-play').classList.contains('on')) {
+    clearTimer(); resetPlay();
+    $('s-play').classList.remove('on'); $('g-finish').classList.remove('on');
+  }
 
   // Start together: auto-enter the moment the room flips to playing
   if (prevStatus !== null && prevStatus !== 'playing' && status === 'playing'
@@ -677,6 +706,34 @@ function clearGuessLayers(){
   gGuessMarker = gTruthMarker = gLine = null;
 }
 
+// ── Results / reveal map (only photos you've already guessed) ──
+const pinIcon = cls => L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [20,20], iconAnchor: [10,10] });
+let rmap = null, rLayers = [];
+function ensureResultsMap(){
+  if (rmap) return;
+  rmap = L.map('r-map', { center: [20, 0], zoom: 2 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(rmap);
+  new ResizeObserver(() => rmap.invalidateSize()).observe(document.getElementById('r-map'));
+}
+async function openResults(){
+  const { data } = await sb.rpc('get_results', { p_player_id: session.playerId });
+  $('s-results').classList.add('on');
+  ensureResultsMap();
+  setTimeout(() => rmap.invalidateSize(), 60);
+  rLayers.forEach(l => rmap.removeLayer(l)); rLayers = [];
+  const rows = data || [];
+  if (!rows.length) { rmap.setView([20, 0], 2); return; }
+  const bounds = [];
+  for (const r of rows){
+    const truth = [r.truth_lat, r.truth_lng], guess = [r.guess_lat, r.guess_lng];
+    const t = L.marker(truth, { icon: pinIcon('truthpin') }).bindTooltip(`${r.points} pts`).addTo(rmap);
+    const g = L.marker(guess, { icon: pinIcon('guesspin') }).addTo(rmap);
+    const ln = L.polyline([truth, guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .6 }).addTo(rmap);
+    rLayers.push(t, g, ln); bounds.push(truth, guess);
+  }
+  rmap.fitBounds(L.latLngBounds(bounds).pad(.2));
+}
+
 async function enterPlay(){
   // Resume an in-progress round (clock continues where it left off) instead of restarting.
   if ((gstate.phase === 'guessing' || gstate.phase === 'revealed') && gstate.queue[gstate.idx]) {
@@ -795,6 +852,18 @@ $('g-confirm').addEventListener('click', confirmGuess2);
 $('g-next').addEventListener('click', nextGuess);
 $('g-exit').addEventListener('click', exitPlay);
 $('g-back').addEventListener('click', exitPlay);
+$('g-reveal').addEventListener('click', openResults);
+$('btn-results').addEventListener('click', openResults);
+$('r-back').addEventListener('click', () => $('s-results').classList.remove('on'));
+$('btn-newgame').addEventListener('click', async () => {
+  if (!confirm('Start a new game? This clears the current photos and scores for everyone in the room.')) return;
+  const { error } = await sb.rpc('reset_room', { p_player_id: session.playerId });
+  if (error) { alert('Error: ' + error.message); return; }
+  localStorage.removeItem(doneKey());
+  resetPlay(); mySelected = null;
+  $('s-results').classList.remove('on'); $('s-play').classList.remove('on'); $('g-finish').classList.remove('on');
+  refreshLobby();
+});
 $('g-expand').addEventListener('click', () => setGExpanded(!$('g-mapPanel').classList.contains('expanded')));
 $('g-stage').addEventListener('contextmenu', e => e.preventDefault());   // block right-click "Save image"
 
