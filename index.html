@@ -402,21 +402,19 @@ async function refreshLobby(){
   const { data: room } = await sb.from('rooms').select('status').eq('id', session.roomId).maybeSingle();
   const status = room ? room.status : 'lobby';
 
-  // roster (+ ready + presence). Host = earliest player.
-  const { data: players } = await sb.from('players')
-    .select('id,name,ready,last_seen').eq('room_id', session.roomId).order('created_at');
+  // roster with server-computed presence (online). Host = earliest player.
+  const { data: players } = await sb.from('roster')
+    .select('id,name,ready,online,created_at').eq('room_id', session.roomId).order('created_at');
   let myReady = false, amHost = false, onlineReady = 0, onlineTotal = 0;
   if (players && players.length){
-    const now = Date.now();
-    const isOnline = p => now - new Date(p.last_seen).getTime() < 15000;
     amHost = players[0].id === session.playerId;
     myReady = !!players.find(p => p.id === session.playerId && p.ready);
-    const online = players.filter(isOnline);
+    const online = players.filter(p => p.online);
     onlineTotal = online.length;
     onlineReady = online.filter(p => p.ready).length;
     $('player-count').textContent = `(${players.length}/6 · ${onlineTotal} online)`;
     $('players').innerHTML = players.map(p =>
-      `<span class="chip ${p.id === session.playerId ? 'me' : ''} ${isOnline(p) ? 'on' : 'off'}">` +
+      `<span class="chip ${p.id === session.playerId ? 'me' : ''} ${p.online ? 'on' : 'off'}">` +
       `<span class="dot"></span>${escapeHtml(p.name)}${p.ready ? ' ✓' : ''}${players[0].id === p.id ? ' (host)' : ''}</span>`).join('');
   }
 

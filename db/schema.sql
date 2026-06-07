@@ -182,6 +182,15 @@ $$;
 revoke all on function public.touch_player(uuid) from public;
 grant execute on function public.touch_player(uuid) to anon;
 
+-- Roster with server-computed presence (clients must NOT parse timestamps —
+-- Safari mis-parses Postgres microsecond precision). Exposes no last_seen/token.
+create or replace view public.roster
+  with (security_invoker = on) as
+  select id, room_id, name, ready, created_at,
+         (now() - last_seen < interval '15 seconds') as online
+  from public.players;
+grant select on public.roster to anon;
+
 -- Ready-gate: players toggle readiness; the HOST starts the game.
 create or replace function public.set_ready(p_player_id uuid, p_ready boolean)
 returns void language sql security definer set search_path = public as $$
