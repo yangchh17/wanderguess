@@ -3,85 +3,92 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>iOS GPS upload check</title>
+  <title>iOS GPS source test</title>
   <script src="vendor/exifr.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{font-family:system-ui,sans-serif;background:#0f1117;color:#e8eaf0;
       min-height:100dvh;padding:18px;display:flex;flex-direction:column;gap:14px}
     h1{font-size:1.2rem;color:#7c9ef8}
-    p.sub{font-size:.84rem;color:#8b8fa8;line-height:1.5}
+    .steps{background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;padding:14px;font-size:.85rem;line-height:1.6}
+    .steps b{color:#7cf8a8}
+    .steps code{background:#12141e;padding:1px 5px;border-radius:4px}
     label.pick{display:block;padding:18px;border:2px dashed #3a3d50;border-radius:12px;
-      text-align:center;color:#adb4d4;font-size:1rem;font-weight:600}
+      text-align:center;color:#adb4d4;font-size:1.05rem;font-weight:700}
     input[type=file]{display:none}
     #summary{display:none;font-size:1.05rem;font-weight:700;padding:12px 14px;
       border-radius:10px;background:#1a1d27;border:1px solid #2a2d3a}
     #summary .g{color:#7cf8a8}
     #list{display:flex;flex-direction:column;gap:8px}
-    .item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+    .item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;
       background:#1a1d27;border:1px solid #2a2d3a;font-size:.82rem}
     .item.ok{border-color:#2c5}
-    .item.bad{border-color:#5a3a3a;opacity:.7}
-    .badge{font-size:1.1rem;flex:0 0 auto}
-    .meta{flex:1 1 auto;min-width:0}
-    .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e8eaf0}
-    .coords{color:#8b8fa8;font-size:.74rem}
-    .type{color:#6b6f85;font-size:.7rem}
-    .hint{font-size:.76rem;color:#6b6f85;line-height:1.5}
+    .item.bad{border-color:#5a3a3a}
+    .badge{font-size:1.2rem;flex:0 0 auto}
+    .meta{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+    .name{color:#e8eaf0;word-break:break-all;font-weight:600}
+    .coords{color:#7cf8a8;font-size:.78rem}
+    .coords.none{color:#f87c7c}
+    .det{color:#6b6f85;font-size:.72rem}
+    .src{font-size:.72rem;font-weight:700}
+    .src.files{color:#7cf8a8}.src.library{color:#f8c97c}
   </style>
 </head>
 <body>
-  <h1>📍 Bulk GPS upload check</h1>
-  <p class="sub">Select up to ~10 photos at once. We'll flag which ones still carry a
-  GPS coordinate after the upload — those are the ones that could become game rounds.</p>
+  <h1>📍 iOS GPS source test</h1>
+
+  <div class="steps">
+    Run this <b>twice</b> on the same photo to compare how iOS delivers it:<br><br>
+    <b>Test A — Photo Library:</b> tap below → <code>Photo Library</code> → pick a geotagged photo.<br>
+    <b>Test B — Files:</b> first save that photo to Files (in Photos: <code>Share → Save to Files → On My iPhone</code>), then tap below → <code>Choose File</code> → pick it.<br><br>
+    We expect <b>Photo Library = no GPS</b> (iOS strips it) and <b>Files = GPS ✓</b>. If so,
+    the Files path is our auto-locate route.
+  </div>
 
   <label class="pick">
-    Select photos from your library
+    Pick a photo to test
     <input type="file" id="f" accept="image/*" multiple />
   </label>
 
   <div id="summary"></div>
   <div id="list"></div>
 
-  <p class="hint">If the count of located photos here matches what you'd expect, the
-  "upload your own" model works on iOS. Note the <b>Type</b> shown — if iOS hands over
-  <code>image/jpeg</code>, HEIC display is solved for free.</p>
-
 <script>
 const $ = id => document.getElementById(id);
 
-// Read GPS for one file. Returns {gps, type}.
-async function checkFile(file) {
+async function checkFile(file){
   let gps = null;
   try { gps = await exifr.gps(file); } catch {}
   const has = gps && gps.latitude != null && gps.longitude != null;
-  return { name: file.name, type: file.type || '(none)', has, gps: has ? gps : null };
+  // Heuristic source guess from how iOS named/typed the file:
+  //  - Files/original: real name (IMG_1234.HEIC), often image/heic
+  //  - Photo Library: generic name (image.jpg) + image/jpeg (transcoded)
+  const generic = /^image\.(jpe?g|png|heic)$/i.test(file.name) || file.name === '';
+  const source = generic ? 'library' : 'files';
+  return { name: file.name || '(no name)', type: file.type || '(none)', size: file.size, has, gps: has ? gps : null, source };
 }
 
-// Limited-concurrency map so 10 reads don't stampede.
-async function mapLimit(items, limit, fn) {
+async function mapLimit(items, limit, fn){
   let i = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (i < items.length) { const idx = i++; await fn(items[idx], idx); }
-  });
-  await Promise.all(workers);
+  await Promise.all(Array.from({length: Math.min(limit, items.length)}, async () => {
+    while (i < items.length){ const idx = i++; await fn(items[idx], idx); }
+  }));
 }
 
 $('f').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   if (!files.length) return;
-
   $('summary').style.display = 'block';
-  $('summary').textContent = `Reading ${files.length} photos…`;
+  $('summary').textContent = `Reading ${files.length}…`;
   $('list').innerHTML = '';
 
-  // pre-create rows in order
   const rows = files.map(f => {
     const el = document.createElement('div');
     el.className = 'item';
     el.innerHTML = `<span class="badge">⏳</span><div class="meta">
-      <div class="name">${f.name}</div><div class="coords">checking…</div>
-      <div class="type">${f.type || '(none)'}</div></div>`;
+      <div class="name">${f.name || '(no name)'}</div>
+      <div class="coords">checking…</div>
+      <div class="det"></div><div class="src"></div></div>`;
     $('list').appendChild(el);
     return el;
   });
@@ -89,17 +96,19 @@ $('f').addEventListener('change', async (e) => {
   let found = 0, done = 0;
   await mapLimit(files, 4, async (file, idx) => {
     const r = await checkFile(file);
-    if (r.has) found++;
-    done++;
+    if (r.has) found++; done++;
     const el = rows[idx];
     el.className = 'item ' + (r.has ? 'ok' : 'bad');
     el.querySelector('.badge').textContent = r.has ? '✅' : '❌';
-    el.querySelector('.coords').textContent = r.has
-      ? `${r.gps.latitude.toFixed(5)}, ${r.gps.longitude.toFixed(5)}`
-      : 'no location data';
-    $('summary').innerHTML =
-      `<span class="g">${found}</span> of ${files.length} photos have a location` +
-      (done < files.length ? ` &nbsp;(${done}/${files.length} checked…)` : '');
+    const c = el.querySelector('.coords');
+    c.className = 'coords' + (r.has ? '' : ' none');
+    c.textContent = r.has ? `${r.gps.latitude.toFixed(5)}, ${r.gps.longitude.toFixed(5)}` : 'no GPS in this file';
+    el.querySelector('.det').textContent = `${r.type} · ${(r.size/1048576).toFixed(2)} MB`;
+    const s = el.querySelector('.src');
+    s.className = 'src ' + r.source;
+    s.textContent = r.source === 'files' ? 'likely: Files / original' : 'likely: Photo Library (transcoded)';
+    $('summary').innerHTML = `<span class="g">${found}</span> of ${files.length} have GPS` +
+      (done < files.length ? ` (${done}/${files.length}…)` : '');
   });
 });
 </script>

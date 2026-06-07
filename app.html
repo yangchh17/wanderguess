@@ -6,6 +6,8 @@
   <title>Wanderguess · multiplayer</title>
   <script src="config.js"></script>
   <script src="vendor/exifr.js"></script>
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <script src="vendor/leaflet.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{ --bg:#0f1117; --card:#1a1d27; --line:#2a2d3a; --ink:#e8eaf0; --mut:#8b8fa8; --accent:#7c9ef8; --good:#7cf8a8; --bad:#f87c7c; }
@@ -30,14 +32,30 @@
     .players{display:flex;flex-wrap:wrap;gap:8px}
     .chip{background:#12141e;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:.85rem}
     .chip.me{border-color:var(--accent);color:var(--accent)}
-    .uplist{display:flex;flex-direction:column;gap:8px}
-    .up{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:#12141e;border:1px solid var(--line);font-size:.85rem}
-    .up .b{font-size:1.1rem}
-    .up.ok{border-color:#2c5}.up.bad{border-color:#5a3a3a;opacity:.8}.up .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .uplist{display:flex;flex-direction:column;gap:10px}
+    .up{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:#12141e;border:1px solid var(--line);font-size:.85rem}
+    .up.ok{border-color:#2c5}.up.bad{border-color:#5a3a3a}
+    .up .thumb{width:54px;height:54px;border-radius:8px;object-fit:cover;background:#0c0e14;flex:0 0 auto}
+    .up .updet{flex:1;min-width:0}
+    .up .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+    .up .st{font-size:.78rem;color:var(--mut);margin-top:2px}
+    .up .act{flex:0 0 auto;padding:9px 12px;border:none;border-radius:8px;background:var(--accent);color:#0f1117;font-weight:700;font-size:.8rem;cursor:pointer}
     .msg{font-size:.85rem;min-height:1.2em}
     .msg.err{color:var(--bad)} .msg.ok{color:var(--good)}
     label.filepick{display:block;text-align:center;padding:18px;border:2px dashed #3a3d50;border-radius:12px;color:#adb4d4;font-weight:600}
     label.filepick input{display:none}
+
+    /* pin-a-location overlay */
+    .pinmap{position:fixed;inset:0;z-index:1000;background:var(--bg);display:none;flex-direction:column}
+    .pinmap.on{display:flex}
+    .pinmap-top{display:flex;gap:10px;padding:14px;align-items:center;border-bottom:1px solid var(--line)}
+    .pinmap-top img{width:60px;height:60px;border-radius:8px;object-fit:cover;background:#0c0e14;flex:0 0 auto}
+    .pinmap-top .t{font-weight:700}
+    #pinmap-map{flex:1 1 0;min-height:0}
+    .leaflet-container{background:#1a1d27}
+    .pinmap-foot{display:flex;gap:10px;padding:12px}
+    .pinmap-foot .btn{flex:1}
+    .guesspin{width:20px;height:20px;border-radius:50%;background:var(--bad);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
   </style>
 </head>
 <body>
@@ -71,7 +89,7 @@
     </div>
 
     <div class="card">
-      <h2>Your photos <span class="mut">(1–2, must have GPS)</span></h2>
+      <h2>Your photos <span class="mut">(1–2 — we auto-locate, or you drop a pin)</span></h2>
       <label class="filepick">
         Add photos from your phone
         <input type="file" id="photo-input" accept="image/*" multiple />
@@ -85,6 +103,22 @@
       <button id="btn-start" class="btn btn-primary" disabled>Start guessing (next build step)</button>
     </div>
   </section>
+
+<!-- Pin-a-location overlay (manual fallback when EXIF has no GPS) -->
+<div id="pinmap" class="pinmap">
+  <div class="pinmap-top">
+    <img id="pinmap-thumb" alt="" />
+    <div>
+      <div class="t">Where was this taken?</div>
+      <div class="mut" id="pinmap-hint">Tap the map to drop a pin.</div>
+    </div>
+  </div>
+  <div id="pinmap-map"></div>
+  <div class="pinmap-foot">
+    <button id="pinmap-cancel" class="btn btn-ghost">Cancel</button>
+    <button id="pinmap-use" class="btn btn-primary" disabled>Use this location</button>
+  </div>
+</div>
 
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -197,73 +231,113 @@ async function refreshLobby(){
   $('pool-count').textContent = count ?? 0;
 }
 
-// ---- upload ----
+// ──────────────── Pin-a-location overlay (Leaflet) ────────────────
+let pinMap = null, pinMarker = null, pinLatLng = null, pinResolve = null;
+
+function ensurePinMap(){
+  if (pinMap) return;
+  pinMap = L.map('pinmap-map', { center: [20, 0], zoom: 2 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(pinMap);
+  pinMap.on('click', (e) => {
+    pinLatLng = e.latlng;
+    const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
+    if (pinMarker) pinMarker.setLatLng(e.latlng);
+    else pinMarker = L.marker(e.latlng, { icon }).addTo(pinMap);
+    $('pinmap-use').disabled = false;
+    $('pinmap-hint').textContent = `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+  });
+}
+
+// Show the photo + a map; resolve with {lat,lng} on confirm, or null on cancel.
+function pickLocationOnMap(previewUrl){
+  return new Promise((resolve) => {
+    pinResolve = resolve; pinLatLng = null;
+    $('pinmap-thumb').src = previewUrl || '';
+    $('pinmap-hint').textContent = 'Tap the map to drop a pin.';
+    $('pinmap-use').disabled = true;
+    if (pinMarker && pinMap) { pinMap.removeLayer(pinMarker); pinMarker = null; }
+    $('pinmap').classList.add('on');
+    ensurePinMap();
+    setTimeout(() => { pinMap.invalidateSize(); pinMap.setView([20, 0], 2); }, 60);
+  });
+}
+function closePin(result){
+  $('pinmap').classList.remove('on');
+  const r = pinResolve; pinResolve = null;
+  if (r) r(result);
+}
+$('pinmap-use').addEventListener('click', () =>
+  closePin(pinLatLng ? { lat: pinLatLng.lat, lng: pinLatLng.lng } : null));
+$('pinmap-cancel').addEventListener('click', () => closePin(null));
+
+// ──────────────── Upload (hybrid: auto-EXIF, else pin) ────────────────
 $('photo-input').addEventListener('change', async (e) => {
   const files = [...e.target.files].slice(0, 2);
   e.target.value = '';
   if (!files.length) return;
-  for (const file of files) await uploadOne(file);
+  for (const file of files) await uploadOne(file);   // sequential (one pin at a time)
   refreshLobby();
 });
 
 async function uploadOne(file){
   const row = document.createElement('div');
   row.className = 'up';
-  row.innerHTML = `<span class="b">⏳</span><span class="nm">${escapeHtml(file.name)}</span><span class="st mut">uploading…</span>`;
+  row.innerHTML = `<img class="thumb" alt=""/><div class="updet">` +
+    `<div class="nm">${escapeHtml(file.name || 'photo')}</div><div class="st">preparing…</div></div>`;
   $('uplist').appendChild(row);
-  const setState = (cls, icon, text) => {
-    row.className = 'up ' + cls;
-    row.querySelector('.b').textContent = icon;
-    row.querySelector('.st').textContent = text;
-  };
+  const thumbEl = row.querySelector('.thumb');
+  const stEl = row.querySelector('.st');
+  const setSt = t => { stEl.textContent = t; };
+  const setCls = c => { row.className = 'up ' + c; };
 
   try {
-    // ── DIAGNOSTIC: read GPS in the BROWSER (moment 1), before any upload ──
-    // This is where iOS still has the location. Tells us if the web-parse
-    // path works in the real app (vs. the server seeing stripped bytes).
-    let clientGps = null;
-    try { clientGps = await exifr.gps(file); } catch {}
-    const hasClientGps = clientGps && clientGps.latitude != null && clientGps.longitude != null;
-    if (hasClientGps) {
-      setState('', '📍', `browser GPS ✓ ${clientGps.latitude.toFixed(4)}, ${clientGps.longitude.toFixed(4)} — uploading…`);
+    // Decode a display JPEG once (HEIC → JPEG; else the file itself). Reused for
+    // preview AND upload, so HEIC is decoded only once.
+    const { blob, contentType } = await makeDisplaySource(file);
+    const previewUrl = URL.createObjectURL(blob);
+    thumbEl.src = previewUrl;
+
+    // 1) Try to auto-locate from EXIF in the browser (works on desktop / some Android).
+    let coord = null;
+    try {
+      const g = await exifr.gps(file);
+      if (g && g.latitude != null && g.longitude != null) coord = { lat: g.latitude, lng: g.longitude };
+    } catch {}
+
+    // 2) No GPS → ask the uploader to drop a pin (seeing the photo to recall where).
+    if (coord) {
+      setSt(`auto-located 📍 ${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`);
     } else {
-      setState('', '⚪', 'browser GPS: none — uploading…');
+      setSt('no GPS in this photo — set the location');
+      const btn = document.createElement('button');
+      btn.className = 'act'; btn.textContent = 'Set location';
+      row.appendChild(btn);
+      coord = await new Promise(res => btn.addEventListener('click',
+        async () => res(await pickLocationOnMap(previewUrl)), { once: true }));
+      if (!coord) { setCls('bad'); setSt('skipped — no location set'); return; }
+      btn.remove();
+      setSt(`pinned 📍 ${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`);
     }
-    console.log('[client-gps]', file.name, file.type, '=>', hasClientGps ? clientGps : 'NONE');
 
+    // 3) Upload the display source, then let the server strip + store the truth.
+    setSt('uploading…');
     const photoId = uuid();
-    const base = `${session.roomId}/${photoId}`;
-    const origPath = `${base}/orig`;
+    const srcPath = `${session.roomId}/${photoId}.src`;
+    const up = await sb.storage.from('uploads').upload(srcPath, blob, { contentType });
+    if (up.error) throw up.error;
 
-    // Upload the ORIGINAL (private; server reads the truth from it).
-    const u1 = await sb.storage.from('uploads').upload(origPath, file, {
-      contentType: file.type || 'application/octet-stream' });   // no upsert (unique path)
-    if (u1.error) throw u1.error;
-
-    // Display source: HEIC -> decoded JPEG (separate file); else reuse original.
-    let displaySrcPath = origPath;
-    if (isHeic(file)) {
-      setState('', '⚙️', 'decoding HEIC…');
-      const { blob, contentType } = await makeDisplaySource(file);
-      displaySrcPath = `${base}/disp.jpg`;
-      const u2 = await sb.storage.from('uploads').upload(displaySrcPath, blob, { contentType });
-      if (u2.error) throw u2.error;
-    }
-
-    setState('', '🛰️', 'extracting location…');
+    setSt('processing…');
     const { data, error } = await sb.functions.invoke('process-photo', {
-      body: { roomId: session.roomId, uploaderId: session.playerId, photoId, originalPath: origPath, displaySrcPath },
+      body: { roomId: session.roomId, uploaderId: session.playerId, photoId, srcPath, lat: coord.lat, lng: coord.lng },
     });
     if (error) throw error;
 
-    const clientStr = hasClientGps
-      ? `browser GPS ✓ ${clientGps.latitude.toFixed(4)},${clientGps.longitude.toFixed(4)}`
-      : 'browser GPS: none';
-    if (data.status === 'ready')         setState('ok', '✅', `added to pool · ${clientStr}`);
-    else if (data.status === 'rejected') setState('bad', '❌', `server: stripped · ${clientStr}`);
-    else                                 setState('bad', '⚠️', `unexpected · ${clientStr}`);
+    if (data.status === 'ready')         { setCls('ok'); setSt('added to the pool ✓'); }
+    else if (data.status === 'rejected') { setCls('bad'); setSt(data.error || 'rejected'); }
+    else                                 { setCls('bad'); setSt('unexpected response'); }
   } catch (e) {
-    setState('bad', '⚠️', 'error: ' + (e.message || e));
+    setCls('bad'); setSt('error: ' + (e.message || e));
   }
 }
 

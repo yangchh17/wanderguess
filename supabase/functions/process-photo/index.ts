@@ -1,18 +1,8 @@
-// ============================================================
-//  Edge Function: process-photo  (Deno)
-//  THE TRUST BOUNDARY LIVES HERE.
-//  - Reads EXIF GPS from the ORIGINAL (server-side authority).
-//  - Writes the truth coordinate to the DB (never returned to client).
-//  - Produces a downsized, EXIF-STRIPPED display image in the public bucket.
-//  - Response NEVER contains coordinates.
-//
-//  Deploy via the Supabase dashboard (Edge Functions > new function),
-//  or `supabase functions deploy process-photo`.
-//  Required secret: SUPABASE_SERVICE_ROLE_KEY (SUPABASE_URL is auto-provided).
-// ============================================================
-
+// process-photo (v4 — hybrid: client supplies the truth coordinate)
+// The browser determines location (auto from EXIF where it survives, else a map pin)
+// and sends {lat,lng}. Server stores it privately, strips/downsizes the display image,
+// and never returns coordinates. Truth stays withheld from guessers (RLS/column grants).
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import exifr from "npm:exifr@7.1.3";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 const cors = {
@@ -21,79 +11,57 @@ const cors = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...cors, "Content-Type": "application/json" },
-  });
+  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 const MAX_DIM = 1280;
-const NO_GPS_MSG = "no location data in this photo — try another";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
-
   try {
-    const { roomId, uploaderId, photoId, originalPath, displaySrcPath } = await req.json();
-    if (!roomId || !uploaderId || !photoId || !originalPath || !displaySrcPath) {
+    const { roomId, uploaderId, photoId, srcPath, lat, lng } = await req.json();
+    if (!roomId || !uploaderId || !photoId || !srcPath)
       return json({ error: "missing fields" }, 400);
-    }
 
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const nlat = Number(lat), nlng = Number(lng);
+    if (!Number.isFinite(nlat) || !Number.isFinite(nlng) ||
+        nlat < -90 || nlat > 90 || nlng < -180 || nlng > 180)
+      return json({ error: "missing or invalid coordinate" }, 400);
 
-    // Basic sanity: uploader belongs to the room.
-    const { data: player } = await admin
-      .from("players").select("id").eq("id", uploaderId).eq("room_id", roomId).maybeSingle();
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: player } = await admin.from("players").select("id").eq("id", uploaderId).eq("room_id", roomId).maybeSingle();
     if (!player) return json({ error: "invalid uploader/room" }, 403);
 
-    // 1) Download ORIGINAL and read the TRUTH (server-side; works on HEIC bytes).
-    const orig = await admin.storage.from("uploads").download(originalPath);
-    if (orig.error || !orig.data) return json({ error: "original not found" }, 404);
-    const origBuf = new Uint8Array(await orig.data.arrayBuffer());
-
-    let gps: { latitude?: number; longitude?: number } | undefined;
-    try { gps = await exifr.gps(origBuf); } catch { /* treated as no-GPS */ }
-
-    if (!gps || gps.latitude == null || gps.longitude == null) {
-      await admin.from("photos").upsert({
-        id: photoId, room_id: roomId, uploader_id: uploaderId,
-        status: "rejected", error: NO_GPS_MSG,
-      });
-      await admin.storage.from("uploads").remove([originalPath, displaySrcPath]);
-      return json({ status: "rejected", error: NO_GPS_MSG }, 200);
+    // Downsize + re-encode the display image (re-encode strips any EXIF).
+    const src = await admin.storage.from("uploads").download(srcPath);
+    if (src.error || !src.data) return json({ error: "source not found" }, 404);
+    let jpeg: Uint8Array;
+    try {
+      const img = await Image.decode(new Uint8Array(await src.data.arrayBuffer()));
+      if (Math.max(img.width, img.height) > MAX_DIM) {
+        if (img.width >= img.height) img.resize(MAX_DIM, Image.RESIZE_AUTO);
+        else img.resize(Image.RESIZE_AUTO, MAX_DIM);
+      }
+      jpeg = await img.encodeJPEG(80);
+    } catch (e) {
+      await admin.from("photos").upsert({ id: photoId, room_id: roomId, uploader_id: uploaderId, status: "rejected", error: "could not process image" });
+      await admin.storage.from("uploads").remove([srcPath]);
+      return json({ status: "rejected", error: "could not process this image" }, 200);
     }
-
-    // 2) Produce downsized, EXIF-STRIPPED display image (re-encode drops metadata).
-    const src = await admin.storage.from("uploads").download(displaySrcPath);
-    if (src.error || !src.data) return json({ error: "display source not found" }, 404);
-    const img = await Image.decode(new Uint8Array(await src.data.arrayBuffer()));
-    if (Math.max(img.width, img.height) > MAX_DIM) {
-      if (img.width >= img.height) img.resize(MAX_DIM, Image.RESIZE_AUTO);
-      else img.resize(Image.RESIZE_AUTO, MAX_DIM);
-    }
-    const jpeg = await img.encodeJPEG(80);
 
     const displayKey = `${roomId}/${photoId}.jpg`;
-    const up = await admin.storage.from("display")
-      .upload(displayKey, jpeg, { contentType: "image/jpeg", upsert: true });
+    const up = await admin.storage.from("display").upload(displayKey, jpeg, { contentType: "image/jpeg", upsert: true });
     if (up.error) return json({ error: up.error.message }, 500);
     const { data: pub } = admin.storage.from("display").getPublicUrl(displayKey);
 
-    // 3) Persist truth + display URL; mark ready.
     const { error: upErr } = await admin.from("photos").upsert({
       id: photoId, room_id: roomId, uploader_id: uploaderId,
       status: "ready", display_url: pub.publicUrl,
-      truth_lat: gps.latitude, truth_lng: gps.longitude, error: null,
+      truth_lat: nlat, truth_lng: nlng, error: null,
     });
     if (upErr) return json({ error: upErr.message }, 500);
+    await admin.storage.from("uploads").remove([srcPath]);
 
-    // Originals contain GPS — remove them now that the truth is in the DB.
-    await admin.storage.from("uploads").remove([originalPath, displaySrcPath]);
-
-    // NOTE: no coordinates in the response.
     return json({ status: "ready", displayUrl: pub.publicUrl }, 200);
   } catch (e) {
     return json({ error: String(e) }, 500);
