@@ -2,850 +2,667 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wanderguess</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <title>Wanderguess · multiplayer</title>
+  <script src="config.js"></script>
+  <script src="vendor/exifr.js"></script>
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <script src="vendor/leaflet.js"></script>
-  <script src="vendor/exifr.js"></script>
-
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{ --bg:#0f1117; --card:#1a1d27; --line:#2a2d3a; --ink:#e8eaf0; --mut:#8b8fa8; --accent:#7c9ef8; --good:#7cf8a8; --bad:#f87c7c; }
+    body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink);
+      min-height:100dvh;display:flex;flex-direction:column;
+      padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));gap:16px}
+    h1{font-size:1.5rem;color:var(--accent);letter-spacing:-.02em}
+    h2{font-size:1.05rem;color:var(--accent)}
+    .mut{color:var(--mut);font-size:.85rem;line-height:1.5}
+    .screen{display:none;flex-direction:column;gap:16px;flex:1 1 auto}
+    .screen.on{display:flex}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+    input{width:100%;padding:14px;font-size:1rem;border-radius:10px;border:1px solid var(--line);
+      background:#12141e;color:var(--ink)}
+    input::placeholder{color:#555a70}
+    .btn{width:100%;padding:15px;border:none;border-radius:11px;font-size:1rem;font-weight:700;cursor:pointer}
+    .btn-primary{background:var(--accent);color:#0f1117}
+    .btn-primary:disabled{background:#2a2d3a;color:#555a70}
+    .btn-ghost{background:#2a2d3a;color:#adb4d4}
+    .code-big{font-size:2.4rem;font-weight:800;letter-spacing:.3em;color:var(--good);text-align:center;
+      background:#12141e;border-radius:12px;padding:16px}
+    .players{display:flex;flex-wrap:wrap;gap:8px}
+    .chip{background:#12141e;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:.85rem}
+    .chip.me{border-color:var(--accent);color:var(--accent)}
+    .uplist{display:flex;flex-direction:column;gap:10px}
+    .up{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:#12141e;border:1px solid var(--line);font-size:.85rem}
+    .up.ok{border-color:#2c5}.up.bad{border-color:#5a3a3a}
+    .up .thumb{width:54px;height:54px;border-radius:8px;object-fit:cover;background:#0c0e14;flex:0 0 auto}
+    .up .updet{flex:1;min-width:0}
+    .up .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+    .up .st{font-size:.78rem;color:var(--mut);margin-top:2px}
+    .up .act{flex:0 0 auto;padding:9px 12px;border:none;border-radius:8px;background:var(--accent);color:#0f1117;font-weight:700;font-size:.8rem;cursor:pointer}
+    .mygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+    .mph{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;border:2px solid var(--line);cursor:pointer;background:#0c0e14}
+    .mph img{width:100%;height:100%;object-fit:cover}
+    .mph.sel{border-color:var(--accent)}
+    .mph .tick{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;
+      background:rgba(15,17,23,.7);border:2px solid #4a4d60;display:flex;align-items:center;justify-content:center;color:#0f1117;font-size:12px;font-weight:800}
+    .mph.sel .tick{background:var(--accent);border-color:var(--accent)}
+    .msg{font-size:.85rem;min-height:1.2em}
+    .msg.err{color:var(--bad)} .msg.ok{color:var(--good)}
+    label.filepick{display:block;text-align:center;padding:18px;border:2px dashed #3a3d50;border-radius:12px;color:#adb4d4;font-weight:600}
+    label.filepick input{display:none}
 
-    body {
-      font-family: system-ui, sans-serif;
-      background: #0f1117;
-      color: #e8eaf0;
-      height: 100dvh;
-      overflow: hidden;
-    }
+    /* pin-a-location overlay */
+    .pinmap{position:fixed;inset:0;z-index:1000;background:var(--bg);display:none;flex-direction:column}
+    .pinmap.on{display:flex}
+    .pinmap-top{display:flex;gap:10px;padding:14px;align-items:center;border-bottom:1px solid var(--line)}
+    .pinmap-top img{width:60px;height:60px;border-radius:8px;object-fit:cover;background:#0c0e14;flex:0 0 auto}
+    .pinmap-top .t{font-weight:700}
+    #pinmap-map{flex:1 1 0;min-height:0}
+    .leaflet-container{background:#1a1d27}
+    .pinmap-foot{display:flex;gap:10px;padding:12px}
+    .pinmap-foot .btn{flex:1}
+    .guesspin{width:20px;height:20px;border-radius:50%;background:var(--bad);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+    .truthpin{width:20px;height:20px;border-radius:50%;background:var(--good);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}
 
-    #app { position: relative; width: 100vw; height: 100dvh; overflow: hidden; }
-
-    .btn {
-      padding: 10px 14px;
-      border: none; border-radius: 7px;
-      font-size: 0.9rem; font-weight: 600; cursor: pointer;
-      transition: background 0.15s, opacity 0.15s;
-    }
-    .btn-primary { background: #7c9ef8; color: #0f1117; }
-    .btn-primary:hover { background: #93b0ff; }
-    .btn-primary:disabled { background: #2a2d3a; color: #555a70; cursor: not-allowed; }
-    .btn-ghost { background: #2a2d3a; color: #adb4d4; }
-    .btn-ghost:hover { background: #363a50; }
-    .label { color: #6b6f85; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
-
-    /* ── Fullscreen media stage ── */
-    #stage {
-      position: absolute; inset: 0;
-      display: none; align-items: center; justify-content: center;
-      background: #000;
-    }
-    #media { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    #media img, #media video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-
-    #spinner {
-      position: absolute; inset: 0;
-      display: none; flex-direction: column; align-items: center; justify-content: center;
-      gap: 12px; background: #000; color: #6b6f85; font-size: 0.82rem;
-    }
-    #spinner.on { display: flex; }
-    #spinner .ring {
-      width: 34px; height: 34px; border-radius: 50%;
-      border: 3px solid #2a2d3a; border-top-color: #7c9ef8;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* ── Overlaid HUD ── */
-    #brand {
-      position: absolute; top: 14px; left: 18px; z-index: 600;
-      font-size: 1.15rem; font-weight: 700; color: #7c9ef8;
-      text-shadow: 0 1px 6px rgba(0,0,0,0.7); pointer-events: none;
-    }
-    #hud {
-      position: absolute; top: 12px; right: 16px; z-index: 600; display: none;
-    }
-    #hud .pill {
-      background: rgba(20,22,30,0.82); border: 1px solid #2a2d3a; border-radius: 10px;
-      padding: 7px 16px; display: flex; gap: 22px; backdrop-filter: blur(6px);
-    }
-    #hud .k { display: block; color: #6b6f85; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.07em; }
-    #hud .v { font-size: 1rem; font-weight: 700; }
-    #round-info { color: #e8eaf0; }
-    #total-info { color: #7cf8a8; }
-
-    /* ── Expandable corner map ── */
-    #mapPanel {
-      position: absolute; right: 16px; bottom: 16px; z-index: 600;
-      width: 320px; height: 200px;
-      display: none; flex-direction: column;
-      border-radius: 12px; overflow: hidden;
-      border: 1px solid #2a2d3a; box-shadow: 0 12px 34px rgba(0,0,0,0.55);
-      background: #1a1d27; opacity: 0.94;
-      transition: width 0.25s ease, height 0.25s ease, opacity 0.2s;
-    }
-    #mapPanel:hover, #mapPanel.expanded { width: min(64vw, 860px); height: min(74vh, 640px); opacity: 1; }
-    #map { flex: 1 1 0; min-height: 0; width: 100%; }
-    .leaflet-container { background: #1a1d27; }
-    .guess-pin-icon, .truth-pin-icon {
-      width: 20px; height: 20px; border-radius: 50%;
-      border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-    }
-    .guess-pin-icon { background: #f87c7c; }
-    .truth-pin-icon { background: #7cf8a8; }
-
-    #map-expand {
-      position: absolute; top: 8px; right: 8px; z-index: 500;
-      width: 28px; height: 28px; border-radius: 7px; border: none;
-      background: rgba(20,22,30,0.85); color: #adb4d4; cursor: pointer;
-      font-size: 14px; line-height: 1;
-    }
-    #map-expand:hover { background: rgba(40,44,60,0.95); }
-
-    #map-foot {
-      flex: 0 0 auto; padding: 8px; background: #12141e; border-top: 1px solid #2a2d3a;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    #map-foot .btn { width: 100%; }
-    #result-inline {
-      display: none; align-items: center; justify-content: space-between;
-      font-size: 0.84rem; padding: 2px 4px;
-    }
-    #result-inline .d { color: #f8c97c; font-weight: 700; }
-    #result-inline .p { color: #7cf8a8; font-weight: 700; }
-
-    /* ── Start screen (overlay) ── */
-    #start {
-      position: absolute; inset: 0; z-index: 1000;
-      display: none; flex-direction: column; align-items: center; justify-content: center;
-      gap: 16px; padding: 24px; text-align: center; background: #0f1117;
-    }
-    #start .card-box { width: min(420px, 92vw); display: flex; flex-direction: column; gap: 16px; }
-    #start h1 { font-size: 1.6rem; color: #7c9ef8; letter-spacing: -0.02em; }
-    #drop-zone {
-      width: 100%; border: 2px dashed #3a3d50; border-radius: 10px; padding: 32px 16px;
-      cursor: pointer; transition: border-color 0.2s, background 0.2s;
-      color: #6b6f85; font-size: 0.88rem; line-height: 1.5;
-    }
-    #drop-zone:hover, #drop-zone.drag-over { border-color: #7c9ef8; background: #20243a; color: #adb4d4; }
-    #drop-zone svg { display: block; margin: 0 auto 10px; opacity: 0.5; }
-    #file-input, #folder-input { display: none; }
-    #start-msg { font-size: 0.82rem; color: #8b8fa8; min-height: 1.2em; }
-
-    /* ── Final screen (overlay) ── */
-    #final {
-      position: absolute; inset: 0; z-index: 1100;
-      display: none; flex-direction: column; align-items: center; justify-content: center;
-      gap: 14px; padding: 24px; background: #0f1117; overflow-y: auto;
-    }
-    #final .card-box { width: min(460px, 92vw); display: flex; flex-direction: column; gap: 12px; }
-    #final h2 { font-size: 1.1rem; color: #7c9ef8; }
-    #final-total { font-size: 2.6rem; font-weight: 800; color: #7cf8a8; line-height: 1; }
-    #final-total small { font-size: 0.9rem; color: #6b6f85; font-weight: 400; }
-    .round-row {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 8px 10px; background: #1a1d27; border-radius: 6px; font-size: 0.84rem;
-    }
-    .round-row .km { color: #8b8fa8; }
-    .round-row .pts { color: #7cf8a8; font-weight: 600; }
-
-    /* ── Review / confirm ── */
-    #review {
-      position: absolute; inset: 0;
-      grid-column: 1 / -1;
-      background: #0f1117;
-      display: none; flex-direction: column;
-      z-index: 1200;   /* above Leaflet controls (z-index 1000) */
-    }
-    #review.on { display: flex; }
-    #review-head {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 16px; padding: 16px 24px; border-bottom: 1px solid #2a2d3a; background: #1a1d27;
-    }
-    #review-head h2 { font-size: 1.1rem; color: #7c9ef8; }
-    #review-status { font-size: 0.82rem; color: #8b8fa8; }
-    #review-actions { display: flex; gap: 10px; }
-    /* Centered RedNote-style masonry feed (JS-distributed columns) */
-    #review-grid {
-      flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
-      width: 100%; max-width: 760px; margin: 0 auto; padding: 20px 16px 60px;
-      display: flex; gap: 14px; justify-content: center; align-items: flex-start;
-    }
-    .mcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-    .card {
-      position: relative; background: #1a1d27; border: 2px solid #2a2d3a;
-      border-radius: 12px; overflow: hidden; cursor: default;
-      transition: border-color 0.15s, opacity 0.15s; opacity: 0.55;
-      width: 100%;
-    }
-    .card.selectable { cursor: pointer; opacity: 1; }
-    .card.selected { border-color: #7c9ef8; }
-    .card.nogps { opacity: 0.4; }
-    .card .thumb {
-      aspect-ratio: 3 / 4; background: #12141e;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .card .thumb.loaded { aspect-ratio: auto; }
-    .card .thumb img { width: 100%; height: auto; display: block; }
-    .card .thumb .ph { color: #3a3d50; font-size: 0.72rem; }
-    .card .thumb .ph.spin { animation: pulse 1.2s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 0.8; } }
-    .card .meta { padding: 7px 9px; display: flex; flex-direction: column; gap: 3px; }
-    .card .name { font-size: 0.72rem; color: #adb4d4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .card .badge { font-size: 0.68rem; font-weight: 600; }
-    .badge.checking { color: #8b8fa8; }
-    .badge.located  { color: #7cf8a8; }
-    .badge.nogps    { color: #f87c7c; }
-    .card .check {
-      position: absolute; top: 8px; right: 8px;
-      width: 22px; height: 22px; border-radius: 50%;
-      background: rgba(15,17,23,0.7); border: 2px solid #4a4d60;
-      display: flex; align-items: center; justify-content: center;
-      color: #0f1117; font-size: 13px; font-weight: 800;
-    }
-    .card.selected .check { background: #7c9ef8; border-color: #7c9ef8; }
+    /* ── Play screen (full-screen GeoGuessr layout) ── */
+    #s-play{position:fixed;inset:0;z-index:1100;background:#000;display:none}
+    #s-play.on{display:block}
+    #g-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+    #g-stage img{max-width:100%;max-height:100%;object-fit:contain}
+    #g-spin{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#6b6f85;font-size:.85rem;background:#000;z-index:2}
+    #g-spin.on{display:flex}
+    #g-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:max(12px,env(safe-area-inset-top)) 14px 12px;z-index:6;gap:10px}
+    #g-exit{background:rgba(20,22,30,.82);border:1px solid var(--line);color:#adb4d4;border-radius:10px;padding:9px 13px;font-weight:700;font-size:.85rem}
+    #g-hud{background:rgba(20,22,30,.82);border:1px solid var(--line);border-radius:10px;padding:7px 14px;display:flex;gap:18px;font-size:.8rem;backdrop-filter:blur(6px)}
+    #g-hud .k{display:block;color:#6b6f85;font-size:.6rem;text-transform:uppercase;letter-spacing:.06em}
+    #g-hud .v{font-weight:700}#g-round{color:var(--ink)}#g-score{color:var(--good)}
+    #g-mapPanel{position:absolute;right:12px;bottom:max(12px,env(safe-area-inset-bottom));z-index:6;
+      width:min(50vw,300px);height:min(34vh,210px);display:flex;flex-direction:column;border-radius:12px;
+      overflow:hidden;border:1px solid var(--line);box-shadow:0 12px 34px rgba(0,0,0,.55);background:var(--card);
+      opacity:.95;transition:width .25s,height .25s,opacity .2s}
+    #g-mapPanel.expanded{width:min(94vw,880px);height:min(76vh,640px);opacity:1}
+    #g-map{flex:1 1 0;min-height:0}
+    #g-expand{position:absolute;top:6px;right:6px;z-index:5;width:30px;height:30px;border-radius:7px;border:none;background:rgba(20,22,30,.85);color:#adb4d4;font-size:15px}
+    #g-foot{flex:0 0 auto;background:#12141e;border-top:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:8px}
+    #g-foot .btn{width:100%}
+    #g-result{display:none;justify-content:space-between;font-size:.84rem;padding:2px 4px}
+    #g-result .d{color:#f8c97c;font-weight:700}#g-result .p{color:var(--good);font-weight:700}
+    #g-finish{position:absolute;inset:0;z-index:7;background:rgba(15,17,23,.97);display:none;flex-direction:column;
+      align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center}
+    #g-finish.on{display:flex}
+    #g-finish h2{color:var(--accent)}
+    .lb{width:min(440px,92vw);display:flex;flex-direction:column;gap:6px}
+    .lbrow{display:flex;justify-content:space-between;gap:10px;padding:9px 13px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:.9rem}
+    .lbrow.me{border-color:var(--accent)}
+    .lbrow .pts{color:var(--good);font-weight:700}
+    .lbrow .rk{color:var(--mut);width:1.6em}
+    .lbrow .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style>
 </head>
 <body>
+  <h1>Wanderguess</h1>
 
-<div id="app">
+  <!-- ───────── Home ───────── -->
+  <section id="s-home" class="screen on">
+    <div class="card">
+      <h2>Start a game</h2>
+      <input id="name" placeholder="Your name" maxlength="20" />
+      <label class="mut" for="ppp">Photos each player adds to the pool</label>
+      <input id="ppp" type="number" min="1" max="10" value="3" />
+      <button id="btn-create" class="btn btn-primary">Create a room</button>
+    </div>
+    <div class="card">
+      <h2>Join a game</h2>
+      <input id="join-code" placeholder="Room code (e.g. 7KQ2)" maxlength="6" autocapitalize="characters" />
+      <button id="btn-join" class="btn btn-ghost">Join room</button>
+    </div>
+    <div id="home-msg" class="msg"></div>
+  </section>
 
-  <!-- Fullscreen media backdrop -->
-  <div id="stage">
-    <div id="media"></div>
-    <div id="spinner"><div class="ring"></div><span>Preparing photo…</span></div>
-  </div>
+  <!-- ───────── Lobby ───────── -->
+  <section id="s-lobby" class="screen">
+    <div class="card">
+      <span class="mut">Room code — share it</span>
+      <div id="room-code" class="code-big">····</div>
+      <button id="btn-leave" class="btn btn-ghost">Leave room</button>
+    </div>
 
-  <!-- Overlaid HUD -->
-  <div id="brand">Wanderguess</div>
-  <div id="hud">
-    <div class="pill">
-      <div><span class="k">Round</span><span class="v" id="round-info">—</span></div>
-      <div><span class="k">Score</span><span class="v" id="total-info">0</span></div>
+    <div class="card">
+      <h2>Players <span class="mut" id="player-count"></span></h2>
+      <div id="players" class="players"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your photos <span class="mut" id="ppp-hint"></span></h2>
+      <label class="filepick">
+        Add photos from your phone
+        <input type="file" id="photo-input" accept="image/*" multiple />
+      </label>
+      <div id="uplist" class="uplist"></div>
+      <div id="my-photos" class="mygrid"></div>
+      <button id="btn-pool" class="btn btn-primary" disabled>Add to pool</button>
+    </div>
+
+    <div class="card">
+      <span class="mut">Pool: <b id="pool-count">0</b> photos · <b id="togo-count">0</b> for you to guess.</span>
+      <button id="btn-start" class="btn btn-primary" disabled>Start guessing</button>
+    </div>
+
+    <div class="card">
+      <h2>Leaderboard</h2>
+      <div id="leaderboard" class="lb"><span class="mut">No scores yet.</span></div>
+    </div>
+  </section>
+
+<!-- ───────── Play screen (full-screen guessing) ───────── -->
+<div id="s-play">
+  <div id="g-stage"><img id="g-photo" alt="" /></div>
+  <div id="g-spin">loading photo…</div>
+
+  <div id="g-top">
+    <button id="g-exit">← Lobby</button>
+    <div id="g-hud">
+      <div><span class="k">Photo</span><span class="v" id="g-round">—</span></div>
+      <div><span class="k">Score</span><span class="v" id="g-score">0</span></div>
     </div>
   </div>
 
-  <!-- Expandable corner map -->
-  <div id="mapPanel">
-    <div id="map"></div>
-    <button id="map-expand" title="Expand / collapse map">⤢</button>
-    <div id="map-foot">
-      <div id="result-inline">
-        <span><span class="label">dist</span> <span class="d" id="dist-val">—</span></span>
-        <span><span class="label">pts</span> <span class="p" id="pts-val">—</span></span>
+  <div id="g-mapPanel">
+    <div id="g-map"></div>
+    <button id="g-expand" title="Expand / collapse">⤢</button>
+    <div id="g-foot">
+      <div id="g-result">
+        <span><span class="label">dist</span> <span class="d" id="g-dist">—</span></span>
+        <span><span class="label">pts</span> <span class="p" id="g-pts">—</span></span>
       </div>
-      <button id="btn-confirm" class="btn btn-primary" disabled>Place a pin on the map</button>
-      <button id="btn-next" class="btn btn-primary" style="display:none">Next round</button>
+      <button id="g-confirm" class="btn btn-primary" disabled>Tap the map to guess</button>
+      <button id="g-next" class="btn btn-primary" style="display:none">Next photo</button>
     </div>
   </div>
 
-  <!-- Start (overlay) -->
-  <div id="start">
-    <div class="card-box">
-      <h1>Wanderguess</h1>
-      <div id="drop-zone" role="button" tabindex="0" aria-label="Load photoset">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-        Drop your photos here
-      </div>
-      <div style="display:flex;gap:10px;width:100%;">
-        <button id="btn-files"  class="btn btn-primary" style="flex:1">Choose files</button>
-        <button id="btn-folder" class="btn btn-ghost"   style="flex:1">Choose folder</button>
-      </div>
-      <div id="start-msg">Each geotagged photo becomes one round.</div>
-      <input type="file" id="file-input"   accept="image/*,.heic,.heif" multiple />
-      <input type="file" id="folder-input" multiple webkitdirectory />
+  <div id="g-finish">
+    <h2>Round complete</h2>
+    <div class="mut" id="g-finish-sub"></div>
+    <div id="g-finish-lb" class="lb"></div>
+    <button id="g-back" class="btn btn-ghost" style="width:min(440px,92vw)">Back to lobby</button>
+  </div>
+</div>
+
+<!-- Pin-a-location overlay (manual fallback when EXIF has no GPS) -->
+<div id="pinmap" class="pinmap">
+  <div class="pinmap-top">
+    <img id="pinmap-thumb" alt="" />
+    <div>
+      <div class="t">Where was this taken?</div>
+      <div class="mut" id="pinmap-hint">Tap the map to drop a pin.</div>
     </div>
   </div>
-
-  <!-- Final (overlay) -->
-  <div id="final">
-    <div class="card-box">
-      <h2>Game over</h2>
-      <div id="final-total"></div>
-      <div id="final-rounds"></div>
-      <button id="btn-again" class="btn btn-ghost">Play again</button>
-    </div>
+  <div id="pinmap-map"></div>
+  <div class="pinmap-foot">
+    <button id="pinmap-cancel" class="btn btn-ghost">Cancel</button>
+    <button id="pinmap-use" class="btn btn-primary" disabled>Use this location</button>
   </div>
+</div>
 
-  <!-- Review / confirm step (overlay) -->
-  <div id="review">
-    <div id="review-head">
-      <div>
-        <h2>Choose your rounds</h2>
-        <span id="review-status">Checking locations…</span>
-      </div>
-      <div id="review-actions">
-        <button id="btn-selectall" class="btn btn-ghost">Select all located</button>
-        <button id="btn-start" class="btn btn-primary" disabled>Start game</button>
-      </div>
-    </div>
-    <div id="review-grid"></div>
-  </div>
-
-</div><!-- #app -->
-
-<script>
-// ════════════════════════════════════════════════════════════
-//  PURE LOGIC — reusable, no DOM
-// ════════════════════════════════════════════════════════════
-
-const MAP_SIZE_KM = 14916.862; // GeoGuessr standard world map diagonal
-
-/** Extract GPS from an image File. Returns {lat,lng} or null. */
-async function extractGPS(file) {
-  try {
-    const gps = await exifr.gps(file);
-    if (!gps || gps.latitude == null || gps.longitude == null) return null;
-    return { lat: gps.latitude, lng: gps.longitude };
-  } catch { return null; }
-}
-
-/** Haversine distance in km between two {lat,lng}. */
-function haversineKm(a, b) {
-  const R = 6371, toRad = d => d * Math.PI / 180;
-  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.asin(Math.sqrt(h));
-}
-
-/** GeoGuessr exponential score from a distance (km). Max 5000. */
-function pointsFromDistance(distanceKm, mapSizeKm = MAP_SIZE_KM) {
-  return Math.round(5000 * Math.exp(-10 * distanceKm / mapSizeKm));
-}
-
-/** Score a guess against truth. Returns {distanceKm, points}. */
-function scoreGuess(truth, guess) {
-  const distanceKm = haversineKm(truth, guess);
-  return { distanceKm, points: pointsFromDistance(distanceKm) };
-}
-
-function formatKm(km) {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  if (km < 100) return `${km.toFixed(1)} km`;
-  return `${Math.round(km).toLocaleString()} km`;
-}
-
-/**
- * Strip EXIF by redrawing through a canvas → returns a safe blob URL.
- * Falls back to lazy heic2any decode if the browser can't render the file.
- */
-async function stripExif(file) {
-  try { return await canvasStrip(file); }
-  catch {
-    const jpgBlob = await decodeHeic(file);
-    return await canvasStrip(jpgBlob);
-  }
-}
-
-function canvasStrip(fileOrBlob) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(fileOrBlob);
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      if (!c.width || !c.height) return reject(new Error('empty image'));
-      c.toBlob(b => b ? resolve(URL.createObjectURL(b)) : reject(new Error('toBlob failed')), 'image/jpeg', 0.92);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
-    img.src = url;
-  });
-}
-
-let _heic2any = null;
-async function decodeHeic(file) {
-  if (!_heic2any) {
-    await new Promise((res, rej) => {
-      const s = document.createElement('script');
-      s.src = 'vendor/heic2any.js';
-      s.onload = res; s.onerror = rej; document.head.appendChild(s);
-    });
-    _heic2any = window.heic2any;
-  }
-  return _heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-}
-
-/** Run async fn over items with at most `limit` in flight at once. */
-async function mapLimit(items, limit, fn) {
-  let i = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (i < items.length) {
-      const idx = i++;
-      await fn(items[idx], idx);
-    }
-  });
-  await Promise.all(workers);
-}
-
-// ════════════════════════════════════════════════════════════
-//  ROUND SOURCE — the swappable seam
-//  Local today; swap createNetworkSource() later for multiplayer.
-//  Contract:  list(files)         -> [{id}]         (instant, all images)
-//             scan(ids, onEach)   -> Promise         (background GPS validation)
-//             getDisplayUrl(id)   -> blobURL         (lazy, cached, prefetchable)
-//             isReady(id)         -> bool            (is the strip cached?)
-//             hasTruth(id)        -> bool            (GPS parsed for this id?)
-//             getTruth(id)        -> {lat,lng}       (reveal only)
-// ════════════════════════════════════════════════════════════
-
-function createLocalSource() {
-  const truths   = new Map();   // id -> {lat,lng}
-  const fileById = new Map();   // id -> File
-  const urlCache = new Map();   // id -> stripped blob URL (lazy)
-
-  return {
-    // Instant: just register the image files and return their ids.
-    list(files) {
-      truths.clear(); fileById.clear(); urlCache.clear();
-      const images = [...files].filter(f =>
-        f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png)$/i.test(f.name));
-      images.forEach(f => fileById.set(f.name, f));
-      return images.map(f => ({ id: f.name }));
-    },
-
-    // Background GPS validation (limited concurrency). Caches coords so
-    // getTruth is a free lookup later. Calls onEach(id, gps) as each settles.
-    // NOTE: this is "server-side curation" running client-side for now — it
-    // moves to the backend once there's one, and disappears from play.
-    async scan(ids, onEach) {
-      await mapLimit(ids, 5, async id => {
-        let gps = null;
-        try { gps = await extractGPS(fileById.get(id)); } catch { /* unreadable */ }
-        if (gps) truths.set(id, gps);
-        onEach && onEach(id, gps);
-      });
-    },
-
-    // Expensive strip happens here, on demand, cached.
-    async getDisplayUrl(id) {
-      if (urlCache.has(id)) return urlCache.get(id);
-      const url = await stripExif(fileById.get(id));
-      urlCache.set(id, url);
-      return url;
-    },
-
-    isReady(id)  { return urlCache.has(id); },   // strip already cached?
-    hasTruth(id) { return truths.has(id); },     // GPS parsed yet?
-    getTruth(id) { return truths.get(id); },
-  };
-}
-
-// ════════════════════════════════════════════════════════════
-//  MAP
-// ════════════════════════════════════════════════════════════
-
-let map = null;
-try {
-  if (typeof L === 'undefined') throw new Error('Leaflet failed to load (vendor/leaflet.js)');
-  map = L.map('map', { center: [20, 0], zoom: 2 });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors', maxZoom: 19,
-  }).addTo(map);
-  // Keep Leaflet's canvas in sync whenever the corner panel resizes.
-  new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
-} catch (err) {
-  console.error('Map init failed:', err);
-  document.getElementById('map').innerHTML =
-    '<div style="padding:20px;color:#f87c7c">Map failed to load: ' + err.message + '</div>';
-}
-
-// Expand / collapse the corner map (pin it open). Hover also expands via CSS.
-function setMapExpanded(on) {
-  document.getElementById('mapPanel').classList.toggle('expanded', on);
-}
-
-const icon = cls => L.divIcon({ className: '', html: `<div class="${cls}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
-
-let guessMarker = null, truthMarker = null, line = null;
-
-function clearMapLayers() {
-  [guessMarker, truthMarker, line].forEach(l => l && map && map.removeLayer(l));
-  guessMarker = truthMarker = line = null;
-}
-
-if (map) map.on('click', e => {
-  if (game.phase !== 'guessing') return;
-  game.guess = { lat: e.latlng.lat, lng: e.latlng.lng };
-  if (guessMarker) guessMarker.setLatLng(e.latlng);
-  else guessMarker = L.marker(e.latlng, { icon: icon('guess-pin-icon') }).addTo(map);
-  $('btn-confirm').disabled = false;
-  $('btn-confirm').textContent = 'Confirm guess';
-});
-
-// ════════════════════════════════════════════════════════════
-//  GAME CONTROLLER
-// ════════════════════════════════════════════════════════════
-
-const game = {
-  source: createLocalSource(),
-  candidates: [],          // all uploaded images (review step)
-  selected: new Set(),     // ids chosen by the user
-  rounds: [],
-  index: 0,
-  guess: null,
-  results: [],     // { id, distanceKm, points }
-  phase: 'start',  // start | review | guessing | revealed | final
-};
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { makeDisplaySource, isHeic } from './shared/media.js?v=2';
+import { scoreGuess, formatKm } from './shared/geo.js?v=2';
 
 const $ = id => document.getElementById(id);
-const show = (id, on, disp = 'flex') => { $(id).style.display = on ? disp : 'none'; };
+const show = s => document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));
 
-// Toggle which screen is visible: 'start' | 'review' | 'play' | 'final'
-function setScreen(s) {
-  show('start', s === 'start');
-  show('final', s === 'final');
-  $('review').classList.toggle('on', s === 'review');
-  const playing = s === 'play';
-  show('stage', playing);
-  show('hud', playing, 'block');
-  show('mapPanel', playing, 'flex');
+if (!window.SUPA || window.SUPA.url.includes('YOUR-PROJECT')) {
+  $('home-msg').className = 'msg err';
+  $('home-msg').textContent = 'Supabase not configured — copy config.example.js to config.js and fill in your project URL + anon key.';
+}
+const sb = createClient(window.SUPA.url, window.SUPA.anonKey);
+
+// ---- identity (per browser, persisted) ----
+const LS = 'geoguessur.session';
+let session = JSON.parse(localStorage.getItem(LS) || 'null'); // {roomId, code, playerId, name}
+function saveSession(s){ session = s; localStorage.setItem(LS, JSON.stringify(s)); }
+
+// Per-room identity, kept across Leave/Join so rejoining reuses the same player
+// instead of creating a duplicate.
+const IDS = 'wg.ids';
+function recallId(code){ try { return (JSON.parse(localStorage.getItem(IDS) || '{}'))[code] || null; } catch { return null; } }
+function rememberId(code, rec){ try { const m = JSON.parse(localStorage.getItem(IDS) || '{}'); m[code] = rec; localStorage.setItem(IDS, JSON.stringify(m)); } catch {} }
+
+function randomCode(n = 4){
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  return Array.from({length:n}, () => A[Math.floor(Math.random()*A.length)]).join('');
 }
 
-// Put media on the fullscreen stage. Built to accept video/live later.
-//   { type:'image', url }  |  { type:'video', url }  |  { type:'live', stillUrl, motionUrl }
-function setStageMedia(desc) {
-  const media = $('media');
-  media.innerHTML = '';
-  if (desc.type === 'video') {
-    const v = document.createElement('video');
-    Object.assign(v, { src: desc.url, autoplay: true, loop: true, muted: true, playsInline: true });
-    media.appendChild(v);
-  } else if (desc.type === 'live') {
-    const img = document.createElement('img');
-    img.src = desc.stillUrl; img.alt = '';
-    media.appendChild(img);
-    // motion overlay (hover-to-play) wired in when Live Photos land
-  } else {
-    const img = document.createElement('img');
-    img.src = desc.url; img.alt = '';
-    media.appendChild(img);
+// UUID that works in NON-secure contexts too (plain http:// on the LAN),
+// where crypto.randomUUID() is unavailable.
+function uuid(){
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues){
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map(x => x.toString(16).padStart(2,'0'));
+    return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
   }
-}
-
-// ── Upload → Review step ──
-// Show every uploaded photo immediately, parse GPS in the background,
-// let the user select/deselect, then start with whatever's parsed.
-
-let thumbObserver = null;
-
-function startUpload(files) {
-  const candidates = game.source.list(files);   // instant
-  if (candidates.length === 0) {
-    $('start-msg').textContent = 'No image files found in your selection.';
-    return;
-  }
-  game.phase = 'review';
-  game.selected = new Set();
-  game.candidates = candidates;
-  setScreen('review');
-  renderReviewGrid(candidates);
-
-  // Background GPS validation — updates each card as it settles.
-  let done = 0, found = 0;
-  game.source.scan(candidates.map(c => c.id), (id, gps) => {
-    done++; if (gps) found++;
-    markCard(id, !!gps);
-    $('review-status').textContent =
-      `Checking locations… ${done}/${candidates.length} checked · ${found} with location`;
-    updateStartBtn();
-  }).then(() => {
-    $('review-status').textContent =
-      `${found} of ${candidates.length} photos have a location.`;
-    updateStartBtn();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
 }
 
-// Thumbnail decode queue — HEIC decoding is heavy, so only a few run at once.
-const THUMB_CONCURRENCY = 3;
-let thumbQueue = [], thumbActive = 0;
-
-function enqueueThumb(card) {
-  thumbQueue.push(card);
-  pumpThumbs();
-}
-function pumpThumbs() {
-  while (thumbActive < THUMB_CONCURRENCY && thumbQueue.length) {
-    const card = thumbQueue.shift();
-    const id = card.dataset.id;
-    const thumb = card.querySelector('.thumb');
-    thumbActive++;
-    game.source.getDisplayUrl(id).then(url => {
-      const img = document.createElement('img');
-      img.src = url; img.alt = '';
-      thumb.innerHTML = ''; thumb.appendChild(img);
-      thumb.classList.add('loaded');
-    }).catch(() => {
-      thumb.innerHTML = '<span class="ph">no preview</span>';
-      markCantDisplay(id);   // undecodable → can't be a round
-    }).finally(() => { thumbActive--; pumpThumbs(); });
-  }
-}
-
-function renderReviewGrid(candidates) {
-  const grid = $('review-grid');
-  grid.innerHTML = '';
-  thumbQueue = []; thumbActive = 0;
-  thumbObserver && thumbObserver.disconnect();
-
-  // Lazily queue thumbnails only as cards scroll into view.
-  thumbObserver = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      thumbObserver.unobserve(e.target);
-      enqueueThumb(e.target);
-    }
-  }, { root: grid, rootMargin: '200px' });
-
-  // Build N column tracks and distribute cards round-robin (vertical masonry).
-  const cols = Math.max(2, Math.min(4, Math.floor((grid.clientWidth || 760) / 200)));
-  const tracks = [];
-  for (let i = 0; i < cols; i++) {
-    const col = document.createElement('div');
-    col.className = 'mcol';
-    grid.appendChild(col);
-    tracks.push(col);
-  }
-
-  candidates.forEach((c, i) => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.dataset.id = c.id;
-    card.innerHTML =
-      `<div class="thumb"><span class="ph spin">decoding…</span></div>` +
-      `<div class="meta"><span class="name">${c.id}</span>` +
-      `<span class="badge checking">checking…</span></div>` +
-      `<div class="check">✓</div>`;
-    card.addEventListener('click', () => toggleCard(c.id));
-    tracks[i % cols].appendChild(card);
-    thumbObserver.observe(card);
-  });
-}
-
-function markCard(id, hasGps) {
-  const card = $('review-grid').querySelector(`.card[data-id="${CSS.escape(id)}"]`);
-  if (!card) return;
-  if (card.dataset.cantDisplay) return;   // decode already failed — leave it
-  const badge = card.querySelector('.badge');
-  if (hasGps) {
-    badge.className = 'badge located'; badge.textContent = '📍 location found';
-    card.classList.add('selectable');
-    selectCard(id, true);                 // auto-select located photos
-  } else {
-    badge.className = 'badge nogps'; badge.textContent = 'no GPS';
-    card.classList.add('nogps');
-  }
-}
-
-function toggleCard(id) {
-  if (!game.source.hasTruth(id)) return;  // can't select non-geotagged
-  selectCard(id, !game.selected.has(id));
-}
-
-function selectCard(id, on) {
-  const card = $('review-grid').querySelector(`.card[data-id="${CSS.escape(id)}"]`);
-  if (on) { game.selected.add(id); card && card.classList.add('selected'); }
-  else    { game.selected.delete(id); card && card.classList.remove('selected'); }
-  updateStartBtn();
-}
-
-function updateStartBtn() {
-  const n = game.selected.size;
-  $('btn-start').disabled = n === 0;
-  $('btn-start').textContent = n ? `Start game (${n} rounds)` : 'Start game';
-}
-
-function beginGame() {
-  // Lazy start: no decoding here. Just build the round list and go — the
-  // photo for each round is decoded on demand (and the rare undecodable one
-  // is skipped gracefully in renderRound).
-  const picked = game.candidates.filter(c =>
-    game.selected.has(c.id) && game.source.hasTruth(c.id));
-  if (picked.length === 0) return;
-
-  game.rounds = picked;
-  game.index = 0;
-  game.results = [];
-  game.phase = 'guessing';
-  setScreen('play');
-  renderRound();
-  prefetchNext(); // warm the next photo while this one is being guessed
-}
-
-// Mark a card as undecodable: can't be a round.
-function markCantDisplay(id) {
-  selectCard(id, false);
-  const card = $('review-grid').querySelector(`.card[data-id="${CSS.escape(id)}"]`);
-  if (!card) return;
-  card.dataset.cantDisplay = '1';
-  card.classList.remove('selectable'); card.classList.add('nogps');
-  const badge = card.querySelector('.badge');
-  if (badge) { badge.className = 'badge nogps'; badge.textContent = "can't display"; }
-  const thumb = card.querySelector('.thumb');
-  if (thumb && !thumb.querySelector('img')) thumb.innerHTML = '<span class="ph">no preview</span>';
-}
-
-async function renderRound() {
-  game.phase = 'guessing';
-  game.guess = null;
-  clearMapLayers();
-  if (map) map.setView([20, 0], 2);
-  setMapExpanded(false);
-
-  const round = game.rounds[game.index];
-  $('media').innerHTML = '';            // clear previous while loading
-  show('result-inline', false);
-  $('btn-confirm').style.display = '';
-  $('btn-confirm').disabled = true;
-  $('btn-confirm').textContent = 'Place a pin on the map';
-  $('btn-next').style.display = 'none';
-  $('round-info').textContent = `${game.index + 1} / ${game.rounds.length}`;
-  updateTotal();
-
-  // Lazy: strip EXIF for this photo only when shown (cached after first time).
-  // Show the spinner only on a cache miss, so prefetched photos don't flash it.
-  const myIndex = game.index;
-  const spinner = $('spinner');
-  if (!game.source.isReady(round.id)) spinner.classList.add('on');
-
-  let url;
+// ---- create room ----
+$('btn-create').addEventListener('click', async () => {
+  const name = $('name').value.trim();
+  if (!name) return msgHome('Enter your name first.', true);
+  $('btn-create').disabled = true;
   try {
-    url = await game.source.getDisplayUrl(round.id);
-  } catch (e) {
-    spinner.classList.remove('on');
-    if (game.index !== myIndex) return;        // user already moved on
-    console.warn('skipping undecodable round', round.id, e);
-    game.rounds.splice(game.index, 1);         // drop the broken photo
-    if (game.rounds.length === 0) { resetGame(); return; }
-    if (game.index >= game.rounds.length) showFinal();
-    else renderRound();
-    return;
-  } finally {
-    spinner.classList.remove('on');
-  }
-  if (game.index === myIndex) setStageMedia({ type: 'image', url });   // ignore if user moved on
-}
-
-// Warm the next round's stripped photo in the background (no await).
-function prefetchNext() {
-  const next = game.rounds[game.index + 1];
-  if (next) game.source.getDisplayUrl(next.id).catch(() => {});
-}
-
-function confirmGuess() {
-  if (!game.guess) return;
-  const round = game.rounds[game.index];
-  const truth = game.source.getTruth(round.id);   // truth revealed now
-  const { distanceKm, points } = scoreGuess(truth, game.guess);
-  game.results.push({ id: round.id, distanceKm, points });
-  game.phase = 'revealed';
-
-  // Expand the map to show the result, then reveal truth + line.
-  setMapExpanded(true);
-  if (map) {
-    truthMarker = L.marker(truth, { icon: icon('truth-pin-icon') })
-      .bindTooltip('True location').addTo(map);
-    line = L.polyline([truth, game.guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: 0.7 }).addTo(map);
-    // Wait for the expand transition so fitBounds uses the final size.
-    setTimeout(() => { map.invalidateSize(); map.fitBounds(L.latLngBounds([truth, game.guess]).pad(0.25)); }, 280);
-  }
-
-  // Reveal stats
-  $('dist-val').textContent = formatKm(distanceKm);
-  $('pts-val').textContent = points.toLocaleString();
-  show('result-inline', true);
-  $('btn-confirm').style.display = 'none';
-  $('btn-next').style.display = '';
-  $('btn-next').textContent = game.index + 1 < game.rounds.length ? 'Next round' : 'See final score';
-  updateTotal();
-}
-
-function nextRound() {
-  if (game.index + 1 < game.rounds.length) { game.index++; renderRound(); prefetchNext(); }
-  else showFinal();
-}
-
-function updateTotal() {
-  const total = game.results.reduce((s, r) => s + r.points, 0);
-  $('total-info').textContent = total.toLocaleString();
-}
-
-function showFinal() {
-  game.phase = 'final';
-  const total = game.results.reduce((s, r) => s + r.points, 0);
-  const max = game.rounds.length * 5000;
-  $('final-total').innerHTML = `${total.toLocaleString()} <small>/ ${max.toLocaleString()} pts</small>`;
-  $('final-rounds').innerHTML = game.results.map((r, i) =>
-    `<div class="round-row"><span>Round ${i + 1}</span>` +
-    `<span class="km">${formatKm(r.distanceKm)}</span>` +
-    `<span class="pts">${r.points.toLocaleString()}</span></div>`).join('');
-  setScreen('final');
-}
-
-function resetGame() {
-  clearMapLayers();
-  setMapExpanded(false);
-  if (map) map.setView([20, 0], 2);
-  thumbObserver && thumbObserver.disconnect();
-  game.candidates = []; game.selected = new Set();
-  game.rounds = []; game.index = 0; game.results = []; game.guess = null;
-  game.phase = 'start';
-  $('review-grid').innerHTML = '';
-  $('media').innerHTML = '';
-  setScreen('start');
-  $('start-msg').textContent = 'Each geotagged photo becomes one round.';
-  $('round-info').textContent = '—';
-  $('total-info').textContent = '0';
-  $('file-input').value = '';
-  $('folder-input').value = '';
-}
-
-// ════════════════════════════════════════════════════════════
-//  WIRING
-// ════════════════════════════════════════════════════════════
-
-const dropZone = $('drop-zone'), fileInput = $('file-input'), folderInput = $('folder-input');
-
-$('btn-files').addEventListener('click', () => fileInput.click());
-$('btn-folder').addEventListener('click', () => folderInput.click());
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
-  e.preventDefault(); dropZone.classList.remove('drag-over');
-  if (e.dataTransfer.files.length) startUpload(e.dataTransfer.files);
+    const ppp = Math.max(1, Math.min(10, parseInt($('ppp').value, 10) || 3));
+    let room = null;
+    for (let i = 0; i < 5 && !room; i++) {
+      const code = randomCode();
+      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp }).select().single();
+      if (!error) room = data;                 // unique-violation => retry
+    }
+    if (!room) throw new Error('could not allocate a room code');
+    const { data: player, error: pe } = await sb.from('players')
+      .insert({ room_id: room.id, name }).select().single();
+    if (pe) throw pe;
+    rememberId(room.code, { roomId: room.id, playerId: player.id, name });
+    saveSession({ roomId: room.id, code: room.code, playerId: player.id, name });
+    enterLobby();
+  } catch (e) { msgHome('Error: ' + e.message, true); }
+  finally { $('btn-create').disabled = false; }
 });
-fileInput.addEventListener('change',   () => { if (fileInput.files.length)   startUpload(fileInput.files); });
-folderInput.addEventListener('change', () => { if (folderInput.files.length) startUpload(folderInput.files); });
 
-// Review step
-$('btn-start').addEventListener('click', beginGame);
-$('btn-selectall').addEventListener('click', () => {
-  const allSelected = game.candidates.every(c =>
-    !game.source.hasTruth(c.id) || game.selected.has(c.id));
-  game.candidates.forEach(c => {
-    if (game.source.hasTruth(c.id)) selectCard(c.id, !allSelected);
+// ---- join room ----
+$('btn-join').addEventListener('click', async () => {
+  const name = $('name').value.trim();
+  const code = $('join-code').value.trim().toUpperCase();
+  if (!name) return msgHome('Enter your name first.', true);
+  if (!code) return msgHome('Enter a room code.', true);
+  $('btn-join').disabled = true;
+  try {
+    const { data: room, error } = await sb.from('rooms').select('*').eq('code', code).maybeSingle();
+    if (error) throw error;
+    if (!room) return msgHome('No room with that code.', true);
+
+    // Rejoin as the same player if we have a still-valid identity for this room.
+    let player = null;
+    const prior = recallId(room.code);
+    if (prior && prior.roomId === room.id) {
+      const { data: existing } = await sb.from('players')
+        .select('id,name').eq('id', prior.playerId).eq('room_id', room.id).maybeSingle();
+      if (existing) player = existing;
+    }
+    if (!player) {
+      const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', room.id);
+      if ((count ?? 0) >= 6) return msgHome('That room is full (6 players).', true);
+      const { data: np, error: pe } = await sb.from('players')
+        .insert({ room_id: room.id, name }).select().single();
+      if (pe) throw pe;
+      player = np;
+      rememberId(room.code, { roomId: room.id, playerId: player.id, name });
+    }
+    saveSession({ roomId: room.id, code: room.code, playerId: player.id, name: player.name || name });
+    enterLobby();
+  } catch (e) { msgHome('Error: ' + e.message, true); }
+  finally { $('btn-join').disabled = false; }
+});
+
+function msgHome(t, err){ $('home-msg').className = 'msg ' + (err ? 'err' : 'ok'); $('home-msg').textContent = t; }
+
+// ---- lobby ----
+let pollTimer = null;
+let roomPPP = 3;       // photos each player adds (from the room)
+let mySelected = null; // Set of my photo ids chosen for the pool (null until first render)
+
+async function enterLobby(){
+  // Validate the saved session still points to a live room + player
+  // (rooms can be deleted; don't strand the user in a dead room).
+  const { data: room } = await sb.from('rooms').select('id,code,photos_per_player').eq('id', session.roomId).maybeSingle();
+  const me = room ? (await sb.from('players').select('id').eq('id', session.playerId).maybeSingle()).data : null;
+  if (!room || !me) return invalidSession('That room has ended — start or join a new one.');
+
+  roomPPP = room.photos_per_player || 3;
+  mySelected = null;
+  session.code = room.code; saveSession(session);
+  $('room-code').textContent = session.code;
+  $('ppp-hint').textContent = `pick ${roomPPP} to add to the pool`;
+  show('s-lobby');
+  refreshLobby();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(refreshLobby, 3000);
+}
+
+function leaveRoom(){
+  clearInterval(pollTimer);
+  localStorage.removeItem(LS); session = null; mySelected = null;
+  show('s-home'); $('home-msg').textContent = '';
+}
+function invalidSession(msg){
+  clearInterval(pollTimer);
+  localStorage.removeItem(LS); session = null; mySelected = null;
+  show('s-home'); if (msg) msgHome(msg, false);
+}
+
+async function refreshLobby(){
+  // roster
+  const { data: players } = await sb.from('players')
+    .select('id,name').eq('room_id', session.roomId).order('created_at');
+  if (players){
+    $('player-count').textContent = `(${players.length}/6)`;
+    $('players').innerHTML = players.map(p =>
+      `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}</span>`).join('');
+  }
+  // ready photos (SAFE view). Pooled ones are what everyone guesses (own included).
+  const { data: pool } = await sb.from('photos_public')
+    .select('id,uploader_id,in_pool,display_url').eq('room_id', session.roomId).eq('status', 'ready');
+  const ready = pool || [];
+  const pooled = ready.filter(p => p.in_pool);
+  const done = getDone();
+  const togo = pooled.filter(p => !done.has(p.id));     // everyone guesses the whole pool
+  $('pool-count').textContent = pooled.length;
+  $('togo-count').textContent = togo.length;
+  $('btn-start').disabled = togo.length === 0;
+  renderMyPhotos(ready.filter(p => p.uploader_id === session.playerId));
+  // leaderboard
+  const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
+  renderLeaderboard($('leaderboard'), lb || []);
+}
+
+// Selectable grid of MY ready photos; pick exactly roomPPP to add to the pool.
+function renderMyPhotos(mine){
+  if (mySelected === null) mySelected = new Set(mine.filter(p => p.in_pool).map(p => p.id));
+  const present = new Set(mine.map(p => p.id));
+  for (const id of [...mySelected]) if (!present.has(id)) mySelected.delete(id);
+
+  const grid = $('my-photos');
+  grid.innerHTML = mine.map(p =>
+    `<div class="mph ${mySelected.has(p.id) ? 'sel' : ''}" data-id="${p.id}">` +
+    `<img src="${p.display_url}" alt=""/><div class="tick">✓</div></div>`).join('');
+  grid.querySelectorAll('.mph').forEach(el => el.addEventListener('click', () => {
+    const id = el.dataset.id;
+    if (mySelected.has(id)) mySelected.delete(id);
+    else { if (mySelected.size >= roomPPP) return; mySelected.add(id); }
+    renderMyPhotos(mine);
+  }));
+
+  const n = mySelected.size;
+  const btn = $('btn-pool');
+  btn.disabled = n !== roomPPP;
+  btn.textContent = n === roomPPP ? `Add ${roomPPP} to pool` : `Select ${roomPPP} (${n}/${roomPPP})`;
+}
+
+async function submitPool(){
+  const { error } = await sb.rpc('set_pool', { p_player_id: session.playerId, p_photo_ids: [...mySelected] });
+  if (error) { alert('Error: ' + error.message); return; }
+  refreshLobby();
+}
+
+// ---- guessed-photos memory (per room+player, this browser) ----
+function doneKey(){ return `wg.done.${session.roomId}.${session.playerId}`; }
+function getDone(){ try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || '[]')); } catch { return new Set(); } }
+function addDone(id){ const s = getDone(); s.add(id); localStorage.setItem(doneKey(), JSON.stringify([...s])); }
+
+function renderLeaderboard(el, rows){
+  if (!rows.length){ el.innerHTML = '<span class="mut">No scores yet.</span>'; return; }
+  el.innerHTML = rows.map((r, i) =>
+    `<div class="lbrow ${r.player_id === session.playerId ? 'me' : ''}">` +
+    `<span class="rk">${i + 1}</span><span class="nm">${escapeHtml(r.name)}</span>` +
+    `<span class="pts">${(r.total_points||0).toLocaleString()}</span></div>`).join('');
+}
+
+// ──────────────── Pin-a-location overlay (Leaflet) ────────────────
+let pinMap = null, pinMarker = null, pinLatLng = null, pinResolve = null;
+
+function ensurePinMap(){
+  if (pinMap) return;
+  pinMap = L.map('pinmap-map', { center: [20, 0], zoom: 2 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(pinMap);
+  pinMap.on('click', (e) => {
+    pinLatLng = e.latlng;
+    const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
+    if (pinMarker) pinMarker.setLatLng(e.latlng);
+    else pinMarker = L.marker(e.latlng, { icon }).addTo(pinMap);
+    $('pinmap-use').disabled = false;
+    $('pinmap-hint').textContent = `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
   });
+}
+
+// Show the photo + a map; resolve with {lat,lng} on confirm, or null on cancel.
+function pickLocationOnMap(previewUrl){
+  return new Promise((resolve) => {
+    pinResolve = resolve; pinLatLng = null;
+    $('pinmap-thumb').src = previewUrl || '';
+    $('pinmap-hint').textContent = 'Tap the map to drop a pin.';
+    $('pinmap-use').disabled = true;
+    if (pinMarker && pinMap) { pinMap.removeLayer(pinMarker); pinMarker = null; }
+    $('pinmap').classList.add('on');
+    ensurePinMap();
+    // Open zoomed to your last pin (trip photos cluster) for faster placing.
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem('wg.lastpin') || 'null'); } catch {}
+    setTimeout(() => {
+      pinMap.invalidateSize();
+      if (last) pinMap.setView([last.lat, last.lng], 10);
+      else pinMap.setView([20, 0], 2);
+    }, 60);
+  });
+}
+function closePin(result){
+  $('pinmap').classList.remove('on');
+  const r = pinResolve; pinResolve = null;
+  if (r) r(result);
+}
+$('pinmap-use').addEventListener('click', () => {
+  const r = pinLatLng ? { lat: pinLatLng.lat, lng: pinLatLng.lng } : null;
+  if (r) localStorage.setItem('wg.lastpin', JSON.stringify(r));   // remember for next photo
+  closePin(r);
+});
+$('pinmap-cancel').addEventListener('click', () => closePin(null));
+
+// ──────────────── Upload (hybrid: auto-EXIF, else pin) ────────────────
+$('photo-input').addEventListener('change', async (e) => {
+  const files = [...e.target.files].slice(0, 2);
+  e.target.value = '';
+  if (!files.length) return;
+  for (const file of files) await uploadOne(file);   // sequential (one pin at a time)
+  refreshLobby();
 });
 
-$('btn-confirm').addEventListener('click', confirmGuess);
-$('btn-next').addEventListener('click', nextRound);
-$('btn-again').addEventListener('click', resetGame);
+async function uploadOne(file){
+  const row = document.createElement('div');
+  row.className = 'up';
+  row.innerHTML = `<img class="thumb" alt=""/><div class="updet">` +
+    `<div class="nm">${escapeHtml(file.name || 'photo')}</div><div class="st">preparing…</div></div>`;
+  $('uplist').appendChild(row);
+  const thumbEl = row.querySelector('.thumb');
+  const stEl = row.querySelector('.st');
+  const setSt = t => { stEl.textContent = t; };
+  const setCls = c => { row.className = 'up ' + c; };
 
-// Expand/collapse map toggle (click pins it open; hover also expands via CSS)
-$('map-expand').addEventListener('click', () =>
-  setMapExpanded(!$('mapPanel').classList.contains('expanded')));
+  try {
+    // Decode a display JPEG once (HEIC → JPEG; else the file itself). Reused for
+    // preview AND upload, so HEIC is decoded only once.
+    const { blob, contentType } = await makeDisplaySource(file);
+    const previewUrl = URL.createObjectURL(blob);
+    thumbEl.src = previewUrl;
 
-// Initial screen
-setScreen('start');
+    // 1) Try to auto-locate from EXIF in the browser (works on desktop / some Android).
+    let coord = null;
+    try {
+      const g = await exifr.gps(file);
+      if (g && g.latitude != null && g.longitude != null) coord = { lat: g.latitude, lng: g.longitude };
+    } catch {}
+
+    // 2) No GPS → ask the uploader to drop a pin (seeing the photo to recall where).
+    if (coord) {
+      setSt(`auto-located 📍 ${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`);
+    } else {
+      setSt('no GPS in this photo — set the location');
+      const btn = document.createElement('button');
+      btn.className = 'act'; btn.textContent = 'Set location';
+      row.appendChild(btn);
+      coord = await new Promise(res => btn.addEventListener('click',
+        async () => res(await pickLocationOnMap(previewUrl)), { once: true }));
+      if (!coord) { setCls('bad'); setSt('skipped — no location set'); return; }
+      btn.remove();
+      setSt(`pinned 📍 ${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`);
+    }
+
+    // 3) Upload the display source, then let the server strip + store the truth.
+    setSt('uploading…');
+    const photoId = uuid();
+    const srcPath = `${session.roomId}/${photoId}.src`;
+    const up = await sb.storage.from('uploads').upload(srcPath, blob, { contentType });
+    if (up.error) throw up.error;
+
+    setSt('processing…');
+    const { data, error } = await sb.functions.invoke('process-photo', {
+      body: { roomId: session.roomId, uploaderId: session.playerId, photoId, srcPath, lat: coord.lat, lng: coord.lng },
+    });
+    if (error) {
+      let detail = error.message;
+      try { if (error.context) detail = (await error.context.json()).error || detail; } catch {}
+      if (/uploader\/room/.test(detail)) detail += ' — try leaving and rejoining the room';
+      throw new Error(detail);
+    }
+
+    if (data.status === 'ready')         { setCls('ok'); setSt('uploaded ✓ — select it below'); }
+    else if (data.status === 'rejected') { setCls('bad'); setSt(data.error || 'rejected'); }
+    else                                 { setCls('bad'); setSt('unexpected response'); }
+  } catch (e) {
+    setCls('bad'); setSt('error: ' + (e.message || e));
+  }
+}
+
+// ──────────────── Play: pooled guessing ────────────────
+const gstate = { queue: [], idx: 0, guess: null, phase: 'idle', score: 0 };
+let gmap = null, gGuessMarker = null, gTruthMarker = null, gLine = null;
+
+function ensureGuessMap(){
+  if (gmap) return;
+  gmap = L.map('g-map', { center: [20, 0], zoom: 2 });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(gmap);
+  new ResizeObserver(() => gmap.invalidateSize()).observe(document.getElementById('g-map'));
+  gmap.on('click', (e) => {
+    if (gstate.phase !== 'guessing') return;
+    // On a small (collapsed) map, the first tap just expands it (touch-friendly).
+    if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
+    gstate.guess = { lat: e.latlng.lat, lng: e.latlng.lng };
+    const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
+    if (gGuessMarker) gGuessMarker.setLatLng(e.latlng);
+    else gGuessMarker = L.marker(e.latlng, { icon }).addTo(gmap);
+    $('g-confirm').disabled = false;
+    $('g-confirm').textContent = 'Confirm guess';
+  });
+}
+function setGExpanded(on){ $('g-mapPanel').classList.toggle('expanded', on); }
+function clearGuessLayers(){
+  [gGuessMarker, gTruthMarker, gLine].forEach(l => l && gmap && gmap.removeLayer(l));
+  gGuessMarker = gTruthMarker = gLine = null;
+}
+
+async function enterPlay(){
+  const { data: pool } = await sb.from('photos_public')
+    .select('id,display_url,uploader_id,in_pool').eq('room_id', session.roomId)
+    .eq('status', 'ready').eq('in_pool', true).order('created_at');
+  const done = getDone();
+  gstate.queue = (pool || []).filter(p => !done.has(p.id) && p.display_url);   // everyone guesses the whole pool
+  gstate.idx = 0; gstate.score = 0; gstate.phase = 'idle';
+  $('g-score').textContent = '0';
+  $('g-finish').classList.remove('on');
+  $('s-play').classList.add('on');
+  ensureGuessMap();
+  setTimeout(() => gmap.invalidateSize(), 60);
+  if (gstate.queue.length === 0) { finishPlay(); return; }
+  renderGuess();
+}
+
+function renderGuess(){
+  gstate.phase = 'guessing'; gstate.guess = null;
+  clearGuessLayers(); setGExpanded(false);
+  if (gmap) gmap.setView([20, 0], 2);
+  const ph = gstate.queue[gstate.idx];
+  $('g-round').textContent = `${gstate.idx + 1} / ${gstate.queue.length}`;
+  $('g-result').style.display = 'none';
+  $('g-confirm').style.display = ''; $('g-confirm').disabled = true; $('g-confirm').textContent = 'Tap the map to guess';
+  $('g-next').style.display = 'none';
+  const img = $('g-photo');
+  img.style.visibility = 'hidden'; $('g-spin').classList.add('on');
+  img.onload = () => { $('g-spin').classList.remove('on'); img.style.visibility = 'visible'; };
+  img.onerror = () => { $('g-spin').classList.remove('on'); };
+  img.src = ph.display_url;
+}
+
+async function confirmGuess2(){
+  if (!gstate.guess || gstate.phase !== 'guessing') return;
+  const ph = gstate.queue[gstate.idx];
+  $('g-confirm').disabled = true; $('g-confirm').textContent = 'scoring…';
+  const { data, error } = await sb.rpc('submit_guess', {
+    p_photo_id: ph.id, p_player_id: session.playerId,
+    p_guess_lat: gstate.guess.lat, p_guess_lng: gstate.guess.lng,
+  });
+  if (error) { $('g-confirm').disabled = false; $('g-confirm').textContent = 'Confirm guess'; alert('Error: ' + error.message); return; }
+  const res = Array.isArray(data) ? data[0] : data;
+  const truth = { lat: res.truth_lat, lng: res.truth_lng };
+
+  // Client-side scoring (shared geo.js) for display — matches the server authority.
+  const { distanceKm, points } = scoreGuess(truth, gstate.guess);
+
+  gstate.phase = 'revealed';
+  addDone(ph.id);
+  gstate.score += res.points;                 // server value is the source of truth
+  $('g-score').textContent = gstate.score.toLocaleString();
+
+  setGExpanded(true);
+  const icon = L.divIcon({ className: '', html: '<div class="truthpin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
+  gTruthMarker = L.marker(truth, { icon }).bindTooltip('Actual location').addTo(gmap);
+  gLine = L.polyline([truth, gstate.guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
+  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gstate.guess]).pad(.25)); }, 280);
+
+  $('g-dist').textContent = formatKm(distanceKm);
+  $('g-pts').textContent = points.toLocaleString();
+  $('g-result').style.display = 'flex';
+  $('g-confirm').style.display = 'none';
+  $('g-next').style.display = '';
+  $('g-next').textContent = (gstate.idx + 1 < gstate.queue.length) ? 'Next photo' : 'Finish';
+}
+
+function nextGuess(){
+  if (gstate.idx + 1 < gstate.queue.length) { gstate.idx++; renderGuess(); }
+  else finishPlay();
+}
+
+async function finishPlay(){
+  gstate.phase = 'done';
+  $('g-finish-sub').textContent = gstate.queue.length
+    ? `You scored ${gstate.score.toLocaleString()} this round.`
+    : 'No new photos for you to guess yet — check back after others upload.';
+  const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
+  renderLeaderboard($('g-finish-lb'), lb || []);
+  $('g-finish').classList.add('on');
+}
+
+function exitPlay(){ $('s-play').classList.remove('on'); refreshLobby(); }
+
+// play wiring
+$('btn-leave').addEventListener('click', leaveRoom);
+$('btn-pool').addEventListener('click', submitPool);
+$('btn-start').addEventListener('click', enterPlay);
+$('g-confirm').addEventListener('click', confirmGuess2);
+$('g-next').addEventListener('click', nextGuess);
+$('g-exit').addEventListener('click', exitPlay);
+$('g-back').addEventListener('click', exitPlay);
+$('g-expand').addEventListener('click', () => setGExpanded(!$('g-mapPanel').classList.contains('expanded')));
+
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// resume an existing session if present
+if (session && session.roomId) enterLobby();
 </script>
 </body>
 </html>

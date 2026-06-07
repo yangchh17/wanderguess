@@ -39,7 +39,7 @@ From the project folder:
 ```
 python -m http.server 8780 --bind 0.0.0.0
 ```
-On your phone (same Wi-Fi): `http://<your-computer-ip>:8780/app.html`
+On your phone (same Wi-Fi): `http://<your-computer-ip>:8780/` (the multiplayer app is index.html)
 
 ---
 
@@ -48,7 +48,7 @@ On your phone (same Wi-Fi): `http://<your-computer-ip>:8780/app.html`
 Goal: **one photo from one phone flows end-to-end, and the coordinate lives in the
 DB, not the client.**
 
-1. On your phone, open `app.html`, enter a name, **Create a room**.
+1. On your phone, open the app (root URL / `index.html`), enter a name, **Create a room**.
 2. In the lobby, **Add photos** → pick one geotagged photo. Watch it go
    `uploading… → extracting location… → ✅ added to the pool`.
    (Pick a non-geotagged one too → it should show `❌ no location data — try another`.)
@@ -72,7 +72,7 @@ build Step 3 (pooled guessing, client + server scoring, shared leaderboard).
 ---
 
 ## Files
-- `app.html` — mobile-first client (lobby + upload). Steps 1–2.
+- `index.html` — mobile-first multiplayer client (lobby, upload, guessing).
 - `shared/geo.js` — scoring/distance (reused unchanged; used in Step 3).
 - `shared/media.js` — client HEIC→JPEG display-source prep.
 - `db/schema.sql` — tables, safe view, RLS.
@@ -80,4 +80,4 @@ build Step 3 (pooled guessing, client + server scoring, shared leaderboard).
 - `supabase/functions/process-photo/index.ts` — server-side EXIF + strip (trust boundary).
 - `config.js` — your Supabase URL + anon key (you create this).
 - `gps-check.html` — standalone iOS GPS-survival diagnostic (already used).
-- `index.html` — the original single-player prototype (kept for reference).
+- `solo.html` — the original single-player prototype (kept for reference).

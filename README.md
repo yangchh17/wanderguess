@@ -20,8 +20,8 @@ No accounts. No native app (yet). Vanilla JS + Leaflet on the front end, Supabas
 ## Project layout
 | Path | What |
 |------|------|
-| `app.html` | Mobile-first multiplayer client (lobby + upload). |
-| `index.html` | Original single-player prototype (reference). |
+| `index.html` | Mobile-first multiplayer client (lobby, upload, guessing) — the app. |
+| `solo.html` | Original single-player prototype (reference). |
 | `shared/geo.js` | Distance + scoring (pure, reusable). |
 | `shared/media.js` | Client HEIC→JPEG display-source prep. |
 | `db/schema.sql` | Tables, safe view, RLS, column grants. |
