@@ -32,6 +32,9 @@
     .players{display:flex;flex-wrap:wrap;gap:8px}
     .chip{background:#12141e;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:.85rem}
     .chip.me{border-color:var(--accent);color:var(--accent)}
+    .chip.off{opacity:.45}
+    .chip .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#4a4d60;margin-right:5px;vertical-align:middle}
+    .chip.on .dot{background:var(--good)}
     .uplist{display:flex;flex-direction:column;gap:10px}
     .up{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:#12141e;border:1px solid var(--line);font-size:.85rem}
     .up.ok{border-color:#2c5}.up.bad{border-color:#5a3a3a}
@@ -158,7 +161,8 @@
       <span class="mut">Pool: <b id="pool-count">0</b> photos · <b id="togo-count">0</b> for you to guess.</span>
       <button id="btn-ready" class="btn btn-ghost" disabled>I'm ready</button>
       <span class="mut" id="ready-line"></span>
-      <button id="btn-start" class="btn btn-primary" disabled>Start guessing</button>
+      <button id="btn-hoststart" class="btn btn-primary" style="display:none" disabled>Start game</button>
+      <button id="btn-start" class="btn btn-primary" style="display:none" disabled>Start guessing</button>
     </div>
 
     <div class="card">
@@ -367,21 +371,27 @@ function invalidSession(msg){
 }
 
 async function refreshLobby(){
-  // room status drives the ready-gate / start-together
+  await sb.rpc('touch_player', { p_player_id: session.playerId });   // presence heartbeat (await so we count as online)
+
   const { data: room } = await sb.from('rooms').select('status').eq('id', session.roomId).maybeSingle();
   const status = room ? room.status : 'lobby';
 
-  // roster (+ ready flags)
+  // roster (+ ready + presence). Host = earliest player.
   const { data: players } = await sb.from('players')
-    .select('id,name,ready').eq('room_id', session.roomId).order('created_at');
-  let myReady = false, readyCount = 0, total = 0;
-  if (players){
-    total = players.length;
-    readyCount = players.filter(p => p.ready).length;
+    .select('id,name,ready,last_seen').eq('room_id', session.roomId).order('created_at');
+  let myReady = false, amHost = false, onlineReady = 0, onlineTotal = 0;
+  if (players && players.length){
+    const now = Date.now();
+    const isOnline = p => now - new Date(p.last_seen).getTime() < 15000;
+    amHost = players[0].id === session.playerId;
     myReady = !!players.find(p => p.id === session.playerId && p.ready);
-    $('player-count').textContent = `(${total}/6)`;
+    const online = players.filter(isOnline);
+    onlineTotal = online.length;
+    onlineReady = online.filter(p => p.ready).length;
+    $('player-count').textContent = `(${players.length}/6)`;
     $('players').innerHTML = players.map(p =>
-      `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}${p.ready ? ' ✓' : ''}</span>`).join('');
+      `<span class="chip ${p.id === session.playerId ? 'me' : ''} ${isOnline(p) ? 'on' : 'off'}">` +
+      `<span class="dot"></span>${escapeHtml(p.name)}${p.ready ? ' ✓' : ''}${players[0].id === p.id ? ' (host)' : ''}</span>`).join('');
   }
 
   // pool (own included) + my photos
@@ -396,16 +406,30 @@ async function refreshLobby(){
   $('togo-count').textContent = togo.length;
   renderMyPhotos(all.filter(p => p.uploader_id === session.playerId));
 
-  // Ready button: enabled once you've pooled your share
+  // Ready toggle (enabled once you've pooled your share)
   const canReady = myPooled >= roomPPP;
   const rb = $('btn-ready');
   rb.disabled = !canReady && !myReady;
   rb.dataset.ready = myReady ? '1' : '0';
   rb.textContent = myReady ? 'Ready ✓ — tap to undo' : (canReady ? "I'm ready" : `Pool ${roomPPP} photo(s) first`);
-  $('ready-line').textContent = `${readyCount} / ${total} ready` + (status === 'playing' ? ' · game started!' : '');
 
-  // Start: available once the room is playing (manual entry / resume)
-  $('btn-start').disabled = !(status === 'playing' && togo.length > 0);
+  // Host "Start game" — enabled when all ONLINE players are ready (offline can't block)
+  const hs = $('btn-hoststart');
+  if (status === 'lobby' && amHost){
+    hs.style.display = '';
+    const allReady = onlineTotal > 0 && onlineReady === onlineTotal;
+    hs.disabled = !allReady;
+    hs.textContent = allReady ? `Start game (${onlineTotal} online)` : `Start game — ${onlineReady}/${onlineTotal} ready`;
+  } else hs.style.display = 'none';
+
+  $('ready-line').textContent = `${onlineReady}/${onlineTotal} online ready`
+    + (status === 'lobby' && !amHost ? ' · waiting for host' : '')
+    + (status === 'playing' ? ' · game started!' : '');
+
+  // "Start guessing" appears once the game is playing (entry / resume)
+  const bs = $('btn-start');
+  bs.style.display = status === 'playing' ? '' : 'none';
+  bs.disabled = !(status === 'playing' && togo.length > 0);
 
   // Start together: auto-enter the moment the room flips to playing
   if (prevStatus !== null && prevStatus !== 'playing' && status === 'playing'
@@ -414,7 +438,6 @@ async function refreshLobby(){
   }
   prevStatus = status;
 
-  // leaderboard
   const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
   renderLeaderboard($('leaderboard'), lb || []);
 }
@@ -758,6 +781,12 @@ $('btn-ready').addEventListener('click', async () => {
   const next = $('btn-ready').dataset.ready !== '1';
   $('btn-ready').disabled = true;
   const { error } = await sb.rpc('set_ready', { p_player_id: session.playerId, p_ready: next });
+  if (error) alert('Error: ' + error.message);
+  refreshLobby();
+});
+$('btn-hoststart').addEventListener('click', async () => {
+  $('btn-hoststart').disabled = true;
+  const { error } = await sb.rpc('start_game', { p_player_id: session.playerId });
   if (error) alert('Error: ' + error.message);
   refreshLobby();
 });

@@ -25,6 +25,7 @@ create table if not exists public.players (
   name       text not null,
   token      uuid not null default gen_random_uuid(),  -- secret identity
   ready      boolean not null default false,           -- ready-gate
+  last_seen  timestamptz not null default now(),       -- presence (online/offline)
   created_at timestamptz not null default now()
 );
 
@@ -165,24 +166,37 @@ end; $$;
 revoke all on function public.set_pool(uuid, uuid[]) from public;
 grant execute on function public.set_pool(uuid, uuid[]) to anon;
 
--- Ready-gate: toggle a player's ready; when all in the room are ready the room
--- flips to 'playing' (one-way). Clients poll status and start together.
+-- Presence heartbeat (clients call periodically while in the room).
+create or replace function public.touch_player(p_player_id uuid)
+returns void language sql security definer set search_path = public as $$
+  update public.players set last_seen = now() where id = p_player_id;
+$$;
+revoke all on function public.touch_player(uuid) from public;
+grant execute on function public.touch_player(uuid) to anon;
+
+-- Ready-gate: players toggle readiness; the HOST starts the game.
 create or replace function public.set_ready(p_player_id uuid, p_ready boolean)
+returns void language sql security definer set search_path = public as $$
+  update public.players set ready = p_ready where id = p_player_id;
+$$;
+revoke all on function public.set_ready(uuid, boolean) from public;
+grant execute on function public.set_ready(uuid, boolean) to anon;
+
+-- Host = earliest player in the room; only the host can start.
+create or replace function public.start_game(p_player_id uuid)
 returns text language plpgsql security definer set search_path = public as $$
-declare v_room uuid; v_total int; v_ready int; v_status text;
+declare v_room uuid; v_host uuid; v_status text;
 begin
-  update players set ready = p_ready where id = p_player_id returning room_id into v_room;
+  select room_id into v_room from players where id = p_player_id;
   if v_room is null then raise exception 'invalid player'; end if;
-  select count(*), count(*) filter (where ready) into v_total, v_ready
-    from players where room_id = v_room;
-  if v_total > 0 and v_ready = v_total then
-    update rooms set status = 'playing' where id = v_room and status = 'lobby';
-  end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can start the game'; end if;
+  update rooms set status = 'playing' where id = v_room and status = 'lobby';
   select status into v_status from rooms where id = v_room;
   return v_status;
 end; $$;
-revoke all on function public.set_ready(uuid, boolean) from public;
-grant execute on function public.set_ready(uuid, boolean) to anon;
+revoke all on function public.start_game(uuid) from public;
+grant execute on function public.start_game(uuid) to anon;
 
 -- ============================================================
 --  SEAM FOR LATER (DO NOT BUILD NOW):
