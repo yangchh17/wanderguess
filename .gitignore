@@ -1,8 +1,8 @@
 # Personal data — never commit (your real geotagged photos!)
 photoset/
 
-# Local Supabase config (publishable key is public-safe, but keep it out of the repo)
-config.js
+# config.js is committed for deployment — its publishable key is safe to be public
+# (RLS protects the data; the secret/service-role key lives only in Supabase).
 
 # Local tooling / editor / agent
 .claude/
