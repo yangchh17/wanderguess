@@ -10,10 +10,11 @@ create extension if not exists pgcrypto;
 
 -- ---------- Rooms ----------
 create table if not exists public.rooms (
-  id         uuid primary key default gen_random_uuid(),
-  code       text unique not null,
-  status     text not null default 'lobby',   -- lobby | playing  (seam for sync mode)
-  created_at timestamptz not null default now()
+  id                uuid primary key default gen_random_uuid(),
+  code              text unique not null,
+  status            text not null default 'lobby',   -- lobby | playing  (seam for sync mode)
+  photos_per_player int  not null default 3,         -- host-set contribution per player
+  created_at        timestamptz not null default now()
 );
 
 -- ---------- Players (no accounts; secret token held client-side) ----------
@@ -31,6 +32,7 @@ create table if not exists public.photos (
   room_id     uuid not null references public.rooms(id) on delete cascade,
   uploader_id uuid not null references public.players(id) on delete cascade,
   status      text not null default 'pending', -- pending | ready | rejected
+  in_pool     boolean not null default false,  -- staged on upload; player promotes N into the pool
   display_url text,
   truth_lat   double precision,                -- PRIVATE — never sent to clients
   truth_lng   double precision,                -- PRIVATE
@@ -58,7 +60,7 @@ create table if not exists public.guesses (
 drop view if exists public.photos_public;
 create view public.photos_public
   with (security_invoker = on) as
-  select id, room_id, uploader_id, status, display_url, error, created_at
+  select id, room_id, uploader_id, status, display_url, error, in_pool, created_at
   from public.photos;
 
 -- ============================================================
@@ -88,7 +90,7 @@ revoke all on public.guesses from anon;
 -- photos: anon may SELECT rows, but ONLY the safe columns (truth is never granted).
 revoke all on public.photos from anon;
 create policy photos_select on public.photos for select to anon using (true);
-grant select (id, room_id, uploader_id, status, display_url, error, created_at)
+grant select (id, room_id, uploader_id, status, display_url, error, in_pool, created_at)
   on public.photos to anon;
 
 -- Clients use the safe view (or the granted columns directly).
@@ -142,6 +144,24 @@ language sql security definer set search_path = public as $$
 $$;
 revoke all on function public.get_leaderboard(uuid) from public;
 grant execute on function public.get_leaderboard(uuid) to anon;
+
+-- Player promotes a chosen set of their OWN ready photos into the pool
+-- (replaces their current pooled set, so they can re-pick before playing starts).
+create or replace function public.set_pool(p_player_id uuid, p_photo_ids uuid[])
+returns int language plpgsql security definer set search_path = public as $$
+declare v_count int;
+begin
+  if not exists (select 1 from players where id = p_player_id) then
+    raise exception 'invalid player';
+  end if;
+  update photos set in_pool = false where uploader_id = p_player_id;
+  update photos set in_pool = true
+    where id = any(p_photo_ids) and uploader_id = p_player_id and status = 'ready';
+  select count(*) into v_count from photos where uploader_id = p_player_id and in_pool = true;
+  return v_count;
+end; $$;
+revoke all on function public.set_pool(uuid, uuid[]) from public;
+grant execute on function public.set_pool(uuid, uuid[]) to anon;
 
 -- ============================================================
 --  SEAM FOR LATER (DO NOT BUILD NOW):

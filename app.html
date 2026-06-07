@@ -40,6 +40,13 @@
     .up .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
     .up .st{font-size:.78rem;color:var(--mut);margin-top:2px}
     .up .act{flex:0 0 auto;padding:9px 12px;border:none;border-radius:8px;background:var(--accent);color:#0f1117;font-weight:700;font-size:.8rem;cursor:pointer}
+    .mygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+    .mph{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;border:2px solid var(--line);cursor:pointer;background:#0c0e14}
+    .mph img{width:100%;height:100%;object-fit:cover}
+    .mph.sel{border-color:var(--accent)}
+    .mph .tick{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;
+      background:rgba(15,17,23,.7);border:2px solid #4a4d60;display:flex;align-items:center;justify-content:center;color:#0f1117;font-size:12px;font-weight:800}
+    .mph.sel .tick{background:var(--accent);border-color:var(--accent)}
     .msg{font-size:.85rem;min-height:1.2em}
     .msg.err{color:var(--bad)} .msg.ok{color:var(--good)}
     label.filepick{display:block;text-align:center;padding:18px;border:2px dashed #3a3d50;border-radius:12px;color:#adb4d4;font-weight:600}
@@ -101,6 +108,8 @@
     <div class="card">
       <h2>Start a game</h2>
       <input id="name" placeholder="Your name" maxlength="20" />
+      <label class="mut" for="ppp">Photos each player adds to the pool</label>
+      <input id="ppp" type="number" min="1" max="10" value="3" />
       <button id="btn-create" class="btn btn-primary">Create a room</button>
     </div>
     <div class="card">
@@ -125,17 +134,18 @@
     </div>
 
     <div class="card">
-      <h2>Your photos <span class="mut">(1–2 — we auto-locate, or you drop a pin)</span></h2>
+      <h2>Your photos <span class="mut" id="ppp-hint"></span></h2>
       <label class="filepick">
         Add photos from your phone
         <input type="file" id="photo-input" accept="image/*" multiple />
       </label>
-      <div id="up-msg" class="msg"></div>
       <div id="uplist" class="uplist"></div>
+      <div id="my-photos" class="mygrid"></div>
+      <button id="btn-pool" class="btn btn-primary" disabled>Add to pool</button>
     </div>
 
     <div class="card">
-      <span class="mut">Pool: <b id="pool-count">0</b> photos ready · <b id="togo-count">0</b> for you to guess.</span>
+      <span class="mut">Pool: <b id="pool-count">0</b> photos · <b id="togo-count">0</b> for you to guess.</span>
       <button id="btn-start" class="btn btn-primary" disabled>Start guessing</button>
     </div>
 
@@ -241,10 +251,11 @@ $('btn-create').addEventListener('click', async () => {
   if (!name) return msgHome('Enter your name first.', true);
   $('btn-create').disabled = true;
   try {
+    const ppp = Math.max(1, Math.min(10, parseInt($('ppp').value, 10) || 3));
     let room = null;
     for (let i = 0; i < 5 && !room; i++) {
       const code = randomCode();
-      const { data, error } = await sb.from('rooms').insert({ code }).select().single();
+      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp }).select().single();
       if (!error) room = data;                 // unique-violation => retry
     }
     if (!room) throw new Error('could not allocate a room code');
@@ -283,15 +294,21 @@ function msgHome(t, err){ $('home-msg').className = 'msg ' + (err ? 'err' : 'ok'
 
 // ---- lobby ----
 let pollTimer = null;
+let roomPPP = 3;       // photos each player adds (from the room)
+let mySelected = null; // Set of my photo ids chosen for the pool (null until first render)
+
 async function enterLobby(){
   // Validate the saved session still points to a live room + player
   // (rooms can be deleted; don't strand the user in a dead room).
-  const { data: room } = await sb.from('rooms').select('id,code').eq('id', session.roomId).maybeSingle();
+  const { data: room } = await sb.from('rooms').select('id,code,photos_per_player').eq('id', session.roomId).maybeSingle();
   const me = room ? (await sb.from('players').select('id').eq('id', session.playerId).maybeSingle()).data : null;
   if (!room || !me) return invalidSession('That room has ended — start or join a new one.');
 
+  roomPPP = room.photos_per_player || 3;
+  mySelected = null;
   session.code = room.code; saveSession(session);
   $('room-code').textContent = session.code;
+  $('ppp-hint').textContent = `pick ${roomPPP} to add to the pool`;
   show('s-lobby');
   refreshLobby();
   clearInterval(pollTimer);
@@ -300,12 +317,12 @@ async function enterLobby(){
 
 function leaveRoom(){
   clearInterval(pollTimer);
-  localStorage.removeItem(LS); session = null;
+  localStorage.removeItem(LS); session = null; mySelected = null;
   show('s-home'); $('home-msg').textContent = '';
 }
 function invalidSession(msg){
   clearInterval(pollTimer);
-  localStorage.removeItem(LS); session = null;
+  localStorage.removeItem(LS); session = null; mySelected = null;
   show('s-home'); if (msg) msgHome(msg, false);
 }
 
@@ -318,18 +335,49 @@ async function refreshLobby(){
     $('players').innerHTML = players.map(p =>
       `<span class="chip ${p.id === session.playerId ? 'me' : ''}">${escapeHtml(p.name)}</span>`).join('');
   }
-  // ready pool (SAFE view — no truth columns). Compute how many YOU can still guess.
+  // ready photos (SAFE view). Pooled ones are what everyone guesses (own included).
   const { data: pool } = await sb.from('photos_public')
-    .select('id,uploader_id').eq('room_id', session.roomId).eq('status', 'ready');
+    .select('id,uploader_id,in_pool,display_url').eq('room_id', session.roomId).eq('status', 'ready');
   const ready = pool || [];
+  const pooled = ready.filter(p => p.in_pool);
   const done = getDone();
-  const togo = ready.filter(p => p.uploader_id !== session.playerId && !done.has(p.id));
-  $('pool-count').textContent = ready.length;
+  const togo = pooled.filter(p => !done.has(p.id));     // everyone guesses the whole pool
+  $('pool-count').textContent = pooled.length;
   $('togo-count').textContent = togo.length;
   $('btn-start').disabled = togo.length === 0;
+  renderMyPhotos(ready.filter(p => p.uploader_id === session.playerId));
   // leaderboard
   const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
   renderLeaderboard($('leaderboard'), lb || []);
+}
+
+// Selectable grid of MY ready photos; pick exactly roomPPP to add to the pool.
+function renderMyPhotos(mine){
+  if (mySelected === null) mySelected = new Set(mine.filter(p => p.in_pool).map(p => p.id));
+  const present = new Set(mine.map(p => p.id));
+  for (const id of [...mySelected]) if (!present.has(id)) mySelected.delete(id);
+
+  const grid = $('my-photos');
+  grid.innerHTML = mine.map(p =>
+    `<div class="mph ${mySelected.has(p.id) ? 'sel' : ''}" data-id="${p.id}">` +
+    `<img src="${p.display_url}" alt=""/><div class="tick">✓</div></div>`).join('');
+  grid.querySelectorAll('.mph').forEach(el => el.addEventListener('click', () => {
+    const id = el.dataset.id;
+    if (mySelected.has(id)) mySelected.delete(id);
+    else { if (mySelected.size >= roomPPP) return; mySelected.add(id); }
+    renderMyPhotos(mine);
+  }));
+
+  const n = mySelected.size;
+  const btn = $('btn-pool');
+  btn.disabled = n !== roomPPP;
+  btn.textContent = n === roomPPP ? `Add ${roomPPP} to pool` : `Select ${roomPPP} (${n}/${roomPPP})`;
+}
+
+async function submitPool(){
+  const { error } = await sb.rpc('set_pool', { p_player_id: session.playerId, p_photo_ids: [...mySelected] });
+  if (error) { alert('Error: ' + error.message); return; }
+  refreshLobby();
 }
 
 // ---- guessed-photos memory (per room+player, this browser) ----
@@ -373,7 +421,14 @@ function pickLocationOnMap(previewUrl){
     if (pinMarker && pinMap) { pinMap.removeLayer(pinMarker); pinMarker = null; }
     $('pinmap').classList.add('on');
     ensurePinMap();
-    setTimeout(() => { pinMap.invalidateSize(); pinMap.setView([20, 0], 2); }, 60);
+    // Open zoomed to your last pin (trip photos cluster) for faster placing.
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem('wg.lastpin') || 'null'); } catch {}
+    setTimeout(() => {
+      pinMap.invalidateSize();
+      if (last) pinMap.setView([last.lat, last.lng], 10);
+      else pinMap.setView([20, 0], 2);
+    }, 60);
   });
 }
 function closePin(result){
@@ -381,8 +436,11 @@ function closePin(result){
   const r = pinResolve; pinResolve = null;
   if (r) r(result);
 }
-$('pinmap-use').addEventListener('click', () =>
-  closePin(pinLatLng ? { lat: pinLatLng.lat, lng: pinLatLng.lng } : null));
+$('pinmap-use').addEventListener('click', () => {
+  const r = pinLatLng ? { lat: pinLatLng.lat, lng: pinLatLng.lng } : null;
+  if (r) localStorage.setItem('wg.lastpin', JSON.stringify(r));   // remember for next photo
+  closePin(r);
+});
 $('pinmap-cancel').addEventListener('click', () => closePin(null));
 
 // ──────────────── Upload (hybrid: auto-EXIF, else pin) ────────────────
@@ -452,7 +510,7 @@ async function uploadOne(file){
       throw new Error(detail);
     }
 
-    if (data.status === 'ready')         { setCls('ok'); setSt('added to the pool ✓'); }
+    if (data.status === 'ready')         { setCls('ok'); setSt('uploaded ✓ — select it below'); }
     else if (data.status === 'rejected') { setCls('bad'); setSt(data.error || 'rejected'); }
     else                                 { setCls('bad'); setSt('unexpected response'); }
   } catch (e) {
@@ -490,10 +548,10 @@ function clearGuessLayers(){
 
 async function enterPlay(){
   const { data: pool } = await sb.from('photos_public')
-    .select('id,display_url,uploader_id').eq('room_id', session.roomId)
-    .eq('status', 'ready').order('created_at');
+    .select('id,display_url,uploader_id,in_pool').eq('room_id', session.roomId)
+    .eq('status', 'ready').eq('in_pool', true).order('created_at');
   const done = getDone();
-  gstate.queue = (pool || []).filter(p => p.uploader_id !== session.playerId && !done.has(p.id) && p.display_url);
+  gstate.queue = (pool || []).filter(p => !done.has(p.id) && p.display_url);   // everyone guesses the whole pool
   gstate.idx = 0; gstate.score = 0; gstate.phase = 'idle';
   $('g-score').textContent = '0';
   $('g-finish').classList.remove('on');
@@ -573,6 +631,7 @@ function exitPlay(){ $('s-play').classList.remove('on'); refreshLobby(); }
 
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
+$('btn-pool').addEventListener('click', submitPool);
 $('btn-start').addEventListener('click', enterPlay);
 $('g-confirm').addEventListener('click', confirmGuess2);
 $('g-next').addEventListener('click', nextGuess);
