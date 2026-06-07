@@ -68,8 +68,10 @@
     /* ── Play screen (full-screen GeoGuessr layout) ── */
     #s-play{position:fixed;inset:0;z-index:1100;background:#000;display:none}
     #s-play.on{display:block}
-    #g-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
-    #g-stage img{max-width:100%;max-height:100%;object-fit:contain}
+    #g-stage{position:absolute;inset:0;background:#000}
+    /* Photo as a CSS background so it can't be long-pressed / saved (anti-cheat). */
+    #g-photo{position:absolute;inset:0;background-size:contain;background-position:center;background-repeat:no-repeat;
+      -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none}
     #g-spin{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#6b6f85;font-size:.85rem;background:#000;z-index:2}
     #g-spin.on{display:flex}
     #g-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:max(12px,env(safe-area-inset-top)) 14px 12px;z-index:6;gap:10px}
@@ -165,7 +167,7 @@
 
 <!-- ───────── Play screen (full-screen guessing) ───────── -->
 <div id="s-play">
-  <div id="g-stage"><img id="g-photo" alt="" /></div>
+  <div id="g-stage"><div id="g-photo"></div></div>
   <div id="g-spin">loading photo…</div>
 
   <div id="g-top">
@@ -654,11 +656,13 @@ function renderGuess(){
   $('g-result').style.display = 'none';
   $('g-confirm').style.display = ''; $('g-confirm').disabled = true; $('g-confirm').textContent = 'Tap the map to guess';
   $('g-next').style.display = 'none';
-  const img = $('g-photo');
-  img.style.visibility = 'hidden'; $('g-spin').classList.add('on');
-  img.onload = () => { $('g-spin').classList.remove('on'); img.style.visibility = 'visible'; };
-  img.onerror = () => { $('g-spin').classList.remove('on'); };
-  img.src = ph.display_url;
+  const photo = $('g-photo');
+  photo.style.backgroundImage = 'none';
+  $('g-spin').classList.add('on');
+  const pre = new Image();   // preload; show as a background (not a saveable <img>)
+  pre.onload = () => { $('g-spin').classList.remove('on'); photo.style.backgroundImage = `url("${ph.display_url}")`; };
+  pre.onerror = () => { $('g-spin').classList.remove('on'); };
+  pre.src = ph.display_url;
   startTimer();
 }
 
@@ -724,6 +728,7 @@ $('g-next').addEventListener('click', nextGuess);
 $('g-exit').addEventListener('click', exitPlay);
 $('g-back').addEventListener('click', exitPlay);
 $('g-expand').addEventListener('click', () => setGExpanded(!$('g-mapPanel').classList.contains('expanded')));
+$('g-stage').addEventListener('contextmenu', e => e.preventDefault());   // block right-click "Save image"
 
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
