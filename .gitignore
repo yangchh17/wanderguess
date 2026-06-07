@@ -13,3 +13,6 @@ photoset/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local agent tooling
+.codex/
