@@ -14,6 +14,7 @@ create table if not exists public.rooms (
   code              text unique not null,
   status            text not null default 'lobby',   -- lobby | playing  (seam for sync mode)
   photos_per_player int  not null default 3,         -- host-set contribution per player
+  seconds_per_photo int  default 90,                 -- per-photo time limit; NULL = no limit
   created_at        timestamptz not null default now()
 );
 

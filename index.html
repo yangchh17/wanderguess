@@ -20,7 +20,7 @@
     .screen{display:none;flex-direction:column;gap:16px;flex:1 1 auto}
     .screen.on{display:flex}
     .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
-    input{width:100%;padding:14px;font-size:1rem;border-radius:10px;border:1px solid var(--line);
+    input,select{width:100%;padding:14px;font-size:1rem;border-radius:10px;border:1px solid var(--line);
       background:#12141e;color:var(--ink)}
     input::placeholder{color:#555a70}
     .btn{width:100%;padding:15px;border:none;border-radius:11px;font-size:1rem;font-weight:700;cursor:pointer}
@@ -77,6 +77,7 @@
     #g-hud{background:rgba(20,22,30,.82);border:1px solid var(--line);border-radius:10px;padding:7px 14px;display:flex;gap:18px;font-size:.8rem;backdrop-filter:blur(6px)}
     #g-hud .k{display:block;color:#6b6f85;font-size:.6rem;text-transform:uppercase;letter-spacing:.06em}
     #g-hud .v{font-weight:700}#g-round{color:var(--ink)}#g-score{color:var(--good)}
+    #g-time{color:#f8c97c}#g-time.low{color:var(--bad)}
     #g-mapPanel{position:absolute;right:12px;bottom:max(12px,env(safe-area-inset-bottom));z-index:6;
       width:min(50vw,300px);height:min(34vh,210px);display:flex;flex-direction:column;border-radius:12px;
       overflow:hidden;border:1px solid var(--line);box-shadow:0 12px 34px rgba(0,0,0,.55);background:var(--card);
@@ -110,6 +111,13 @@
       <input id="name" placeholder="Your name" maxlength="20" />
       <label class="mut" for="ppp">Photos each player adds to the pool</label>
       <input id="ppp" type="number" min="1" max="10" value="3" />
+      <label class="mut" for="spp">Time per photo</label>
+      <select id="spp">
+        <option value="90" selected>1:30</option>
+        <option value="60">1:00</option>
+        <option value="120">2:00</option>
+        <option value="">No limit</option>
+      </select>
       <button id="btn-create" class="btn btn-primary">Create a room</button>
     </div>
     <div class="card">
@@ -163,6 +171,7 @@
   <div id="g-top">
     <button id="g-exit">← Lobby</button>
     <div id="g-hud">
+      <div><span class="k">Time</span><span class="v" id="g-time">—</span></div>
       <div><span class="k">Photo</span><span class="v" id="g-round">—</span></div>
       <div><span class="k">Score</span><span class="v" id="g-score">0</span></div>
     </div>
@@ -258,10 +267,12 @@ $('btn-create').addEventListener('click', async () => {
   $('btn-create').disabled = true;
   try {
     const ppp = Math.max(1, Math.min(10, parseInt($('ppp').value, 10) || 3));
+    const sppRaw = $('spp').value;
+    const spp = sppRaw === '' ? null : parseInt(sppRaw, 10);   // null = no limit
     let room = null;
     for (let i = 0; i < 5 && !room; i++) {
       const code = randomCode();
-      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp }).select().single();
+      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp }).select().single();
       if (!error) room = data;                 // unique-violation => retry
     }
     if (!room) throw new Error('could not allocate a room code');
@@ -315,16 +326,18 @@ function msgHome(t, err){ $('home-msg').className = 'msg ' + (err ? 'err' : 'ok'
 // ---- lobby ----
 let pollTimer = null;
 let roomPPP = 3;       // photos each player adds (from the room)
+let roomSPP = 90;      // seconds per photo (null = no limit)
 let mySelected = null; // Set of my photo ids chosen for the pool (null until first render)
 
 async function enterLobby(){
   // Validate the saved session still points to a live room + player
   // (rooms can be deleted; don't strand the user in a dead room).
-  const { data: room } = await sb.from('rooms').select('id,code,photos_per_player').eq('id', session.roomId).maybeSingle();
+  const { data: room } = await sb.from('rooms').select('id,code,photos_per_player,seconds_per_photo').eq('id', session.roomId).maybeSingle();
   const me = room ? (await sb.from('players').select('id').eq('id', session.playerId).maybeSingle()).data : null;
   if (!room || !me) return invalidSession('That room has ended — start or join a new one.');
 
   roomPPP = room.photos_per_player || 3;
+  roomSPP = room.seconds_per_photo;   // may be null (no limit)
   mySelected = null;
   session.code = room.code; saveSession(session);
   $('room-code').textContent = session.code;
@@ -568,6 +581,36 @@ function setGExpanded(on){
   $('g-mapPanel').classList.toggle('expanded', on);
   $('g-expand').textContent = on ? '×' : '⤢';   // ⤢ expand · × collapse
 }
+
+// ── Per-photo countdown (async time limit) ──
+let gTimerInt = null, gRemaining = 0;
+function fmtTime(s){ const m = Math.floor(s/60); return `${m}:${String(s%60).padStart(2,'0')}`; }
+function clearTimer(){ if (gTimerInt) clearInterval(gTimerInt); gTimerInt = null; }
+function renderTime(){
+  $('g-time').textContent = fmtTime(Math.max(0, gRemaining));
+  $('g-time').classList.toggle('low', gRemaining <= 10);
+}
+function startTimer(){
+  clearTimer();
+  if (roomSPP == null) { $('g-time').textContent = '∞'; $('g-time').classList.remove('low'); return; }
+  gRemaining = roomSPP; renderTime();
+  gTimerInt = setInterval(() => {
+    gRemaining -= 1; renderTime();
+    if (gRemaining <= 0) { clearTimer(); onTimeUp(); }
+  }, 1000);
+}
+function onTimeUp(){
+  if (gstate.phase !== 'guessing') return;
+  if (gstate.guess) { confirmGuess2(); return; }       // auto-submit the placed pin
+  // No pin placed → 0 points, no reveal (truth stays withheld), move on.
+  gstate.phase = 'revealed';
+  addDone(gstate.queue[gstate.idx].id);
+  $('g-dist').textContent = '—'; $('g-pts').textContent = '0';
+  $('g-result').style.display = 'flex';
+  $('g-confirm').style.display = 'none';
+  $('g-next').style.display = '';
+  $('g-next').textContent = (gstate.idx + 1 < gstate.queue.length) ? "Time's up · Next" : "Time's up · Finish";
+}
 function clearGuessLayers(){
   [gGuessMarker, gTruthMarker, gLine].forEach(l => l && gmap && gmap.removeLayer(l));
   gGuessMarker = gTruthMarker = gLine = null;
@@ -603,10 +646,12 @@ function renderGuess(){
   img.onload = () => { $('g-spin').classList.remove('on'); img.style.visibility = 'visible'; };
   img.onerror = () => { $('g-spin').classList.remove('on'); };
   img.src = ph.display_url;
+  startTimer();
 }
 
 async function confirmGuess2(){
   if (!gstate.guess || gstate.phase !== 'guessing') return;
+  clearTimer();
   const ph = gstate.queue[gstate.idx];
   $('g-confirm').disabled = true; $('g-confirm').textContent = 'scoring…';
   const { data, error } = await sb.rpc('submit_guess', {
@@ -645,6 +690,7 @@ function nextGuess(){
 }
 
 async function finishPlay(){
+  clearTimer();
   gstate.phase = 'done';
   $('g-finish-sub').textContent = gstate.queue.length
     ? `You scored ${gstate.score.toLocaleString()} this round.`
@@ -654,7 +700,7 @@ async function finishPlay(){
   $('g-finish').classList.add('on');
 }
 
-function exitPlay(){ $('s-play').classList.remove('on'); refreshLobby(); }
+function exitPlay(){ clearTimer(); $('s-play').classList.remove('on'); refreshLobby(); }
 
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
