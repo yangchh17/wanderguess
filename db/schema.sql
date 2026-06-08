@@ -258,6 +258,7 @@ grant insert (room_id, name) on public.players to anon, authenticated;  -- user_
 
 revoke all on public.guesses from anon, authenticated;             -- RPC-only
 grant select, insert on public.rooms to anon, authenticated;
+revoke update, delete on public.rooms from anon, authenticated;    -- status/game_seq change via RPC only
 grant select on public.photos_public to anon, authenticated;
 grant select on public.roster        to anon, authenticated;
 
