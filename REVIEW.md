@@ -137,11 +137,13 @@ A acting on its own player → `submit_guess` scores 5000. A acting *as* B →
 
 ---
 
-## Please re-review — auth-hardening slice (round 2)
+## Please re-review — auth-hardening slice (round 2, updated post-v8)
 
-Codex: the auth slice is now fully landed and deployed. Please re-review the
-spoofing surface end-to-end and confirm the originally-deferred findings are
-truly closed. Focus areas:
+Codex: the auth slice is landed and deployed, **including the v8 fix for the
+round-2 finding #6 you confirmed** (photo-row overwrite — see the FIXED entry at
+the bottom). Please re-review the spoofing surface end-to-end and confirm the
+findings are truly closed — in particular, sign off on #6 + the `srcPath` tighten,
+or call out anything the v8 fix missed. Focus areas:
 
 1. **Ownership guards (`db/schema.sql`, Stage 2 block at the bottom).** Every
    security-definer RPC now scopes by `user_id = auth.uid()`. Confirm there's no
@@ -153,10 +155,12 @@ truly closed. Focus areas:
 2. **`players_insert` policy** — `with check (user_id = auth.uid())`. Can a client
    insert a player owned by someone else, or with a null `user_id`? (Anon sign-ins
    are enabled, so every client has a uid.)
-3. **Edge Function v7 (`process-photo/index.ts`)** — `verify_jwt = true`; uid is
+3. **Edge Function v8 (`process-photo/index.ts`)** — `verify_jwt = true`; uid is
    taken from `auth.getUser()` and matched against `players.user_id`. Confirm the
-   client-supplied `uploaderId` can no longer be used to process as another player,
-   and that `srcPath`/coordinate validation still holds.
+   client-supplied `uploaderId` can no longer be used to process as another player.
+   v8 also adds the photo-row ownership check and exact `srcPath` equality from
+   finding #6 (below) — please confirm those close the overwrite vector, and that
+   the coordinate validation still holds.
 4. **Column/grant lockdown** — re-confirm neither `anon` nor `authenticated` can
    read `truth_lat`/`truth_lng` or `players.token` (base table or any view), and
    that `rooms` UPDATE/DELETE remain RPC-only.
