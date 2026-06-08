@@ -106,7 +106,7 @@
       align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center}
     #g-finish.on{display:flex}
     #g-finish h2{color:var(--accent)}
-    .lb{width:min(440px,92vw);display:flex;flex-direction:column;gap:6px}
+    .lb{width:100%;max-width:440px;display:flex;flex-direction:column;gap:6px}
     .lbrow{display:flex;justify-content:space-between;gap:10px;padding:9px 13px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:.9rem}
     .lbrow.me{border-color:var(--accent)}
     .lbrow .pts{color:var(--good);font-weight:700}
@@ -361,18 +361,20 @@ function msgHome(t, err){ $('home-msg').className = 'msg ' + (err ? 'err' : 'ok'
 let pollTimer = null;
 let roomPPP = 3;       // photos each player adds (from the room)
 let roomSPP = 90;      // seconds per photo (null = no limit)
+let roomSeq = 0;       // game generation (bumped on rematch) — scopes guess-memory
 let mySelected = null; // Set of my photo ids chosen for the pool (null until first render)
 let prevStatus = null; // last seen room status (to detect the lobby->playing transition)
 
 async function enterLobby(){
   // Validate the saved session still points to a live room + player
   // (rooms can be deleted; don't strand the user in a dead room).
-  const { data: room } = await sb.from('rooms').select('id,code,photos_per_player,seconds_per_photo').eq('id', session.roomId).maybeSingle();
+  const { data: room } = await sb.from('rooms').select('id,code,photos_per_player,seconds_per_photo,game_seq').eq('id', session.roomId).maybeSingle();
   const me = room ? (await sb.from('players').select('id').eq('id', session.playerId).maybeSingle()).data : null;
   if (!room || !me) return invalidSession('That room has ended — start or join a new one.');
 
   roomPPP = room.photos_per_player || 3;
   roomSPP = room.seconds_per_photo;   // may be null (no limit)
+  roomSeq = room.game_seq || 0;
   mySelected = null;
   prevStatus = null;
   session.code = room.code; saveSession(session);
@@ -399,8 +401,9 @@ function invalidSession(msg){
 async function refreshLobby(){
   await sb.rpc('touch_player', { p_player_id: session.playerId });   // presence heartbeat (await so we count as online)
 
-  const { data: room } = await sb.from('rooms').select('status').eq('id', session.roomId).maybeSingle();
+  const { data: room } = await sb.from('rooms').select('status,game_seq').eq('id', session.roomId).maybeSingle();
   const status = room ? room.status : 'lobby';
+  roomSeq = room ? (room.game_seq || 0) : roomSeq;   // keep guess-memory scoped to the current game
 
   // roster with server-computed presence (online). Host = earliest player.
   const { data: players } = await sb.from('roster')
@@ -500,7 +503,7 @@ async function submitPool(){
 }
 
 // ---- guessed-photos memory (per room+player, this browser) ----
-function doneKey(){ return `wg.done.${session.roomId}.${session.playerId}`; }
+function doneKey(){ return `wg.done.${session.roomId}.${session.playerId}.${roomSeq}`; }
 function getDone(){ try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || '[]')); } catch { return new Set(); } }
 function addDone(id){ const s = getDone(); s.add(id); localStorage.setItem(doneKey(), JSON.stringify([...s])); }
 
@@ -725,8 +728,11 @@ async function openResults(){
   const bounds = [];
   for (const r of rows){
     const truth = [r.truth_lat, r.truth_lng], guess = [r.guess_lat, r.guess_lng];
-    const t = L.marker(truth, { icon: pinIcon('truthpin') }).bindTooltip(`${r.points} pts`).addTo(rmap);
-    const g = L.marker(guess, { icon: pinIcon('guesspin') }).addTo(rmap);
+    const popup = `<div style="text-align:center">` +
+      `<img src="${r.display_url}" style="width:150px;height:auto;border-radius:6px;display:block;margin:0 auto 5px"/>` +
+      `<b>${r.points.toLocaleString()} pts</b> · ${formatKm(r.distance_km)} off</div>`;
+    const t = L.marker(truth, { icon: pinIcon('truthpin') }).bindPopup(popup).addTo(rmap);
+    const g = L.marker(guess, { icon: pinIcon('guesspin') }).bindPopup(popup).addTo(rmap);
     const ln = L.polyline([truth, guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .6 }).addTo(rmap);
     rLayers.push(t, g, ln); bounds.push(truth, guess);
   }

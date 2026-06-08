@@ -15,6 +15,7 @@ create table if not exists public.rooms (
   status            text not null default 'lobby',   -- lobby | playing  (seam for sync mode)
   photos_per_player int  not null default 3,         -- host-set contribution per player
   seconds_per_photo int  default 90,                 -- per-photo time limit; NULL = no limit
+  game_seq          int  not null default 0,         -- bumped on rematch (invalidates client guess-memory)
   created_at        timestamptz not null default now()
 );
 
@@ -224,9 +225,11 @@ begin
   if v_room is null then raise exception 'invalid player'; end if;
   select id into v_host from players where room_id = v_room order by created_at, id limit 1;
   if v_host is distinct from p_player_id then raise exception 'only the host can start a new game'; end if;
-  delete from photos where room_id = v_room;          -- cascades guesses
-  update players set ready = false where room_id = v_room;
-  update rooms set status = 'lobby' where id = v_room;
+  -- Rematch keeps uploaded photos; clears scores, un-pools, resets ready, bumps game_seq.
+  delete from guesses where photo_id in (select id from photos where room_id = v_room);
+  update photos  set in_pool = false where room_id = v_room;
+  update players set ready = false   where room_id = v_room;
+  update rooms   set status = 'lobby', game_seq = game_seq + 1 where id = v_room;
 end; $$;
 revoke all on function public.reset_room(uuid) from public;
 grant execute on function public.reset_room(uuid) to anon;
