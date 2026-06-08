@@ -23,6 +23,10 @@ Deno.serve(async (req) => {
     if (!roomId || !uploaderId || !photoId || !srcPath)
       return json({ error: "missing fields" }, 400);
 
+    // srcPath must live under this room's prefix (no reaching into other rooms' uploads).
+    if (typeof srcPath !== "string" || !srcPath.startsWith(`${roomId}/`))
+      return json({ error: "bad source path" }, 400);
+
     const nlat = Number(lat), nlng = Number(lng);
     if (!Number.isFinite(nlat) || !Number.isFinite(nlng) ||
         nlat < -90 || nlat > 90 || nlng < -180 || nlng > 180)

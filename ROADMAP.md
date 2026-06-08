@@ -24,10 +24,24 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
   you've guessed); host same-room rematch keeps uploaded photos (game_seq scopes
   guess-memory); scores reset per game.
 
-## ⛏ Hardening (do before any public/anonymous launch)
-- RPCs trust a client-supplied `player_id` (spoofable by someone in the room).
-  Require the secret `players.token` on `submit_guess`, `set_ready`, `set_pool`,
-  `set_name`, `start_game`, `reset_room`, `delete_photo`, `touch_player`.
+## 🔒 Security (from Codex review — see REVIEW.md)
+**Fixed (no auth needed):**
+- ✅ Truth leak via `get_results` — RPC removed; reveal map built from truths the
+  client cached from `submit_guess`.
+- ✅ `set_pool` now enforces `photos_per_player` server-side.
+- ✅ `process-photo` validates `srcPath` is under the room's prefix.
+- Decision: `start_game` keeps host override (start with AFK/unready players) — by design.
+
+**Auth-hardening slice (needs per-client identity — do before public/wider launch):**
+The remaining issues are *impersonation* (acting as another player), because RPCs
+trust a readable `player_id`. Chosen approach **TBD by owner**:
+- *Recommended:* **Supabase anonymous auth** → use `auth.uid()` in RPCs/RLS; also
+  the on-ramp to real accounts (anonymous → upgrade to email, keep history).
+- *Alt:* manual `players.token` on every RPC + lock down the token column.
+Covers: `submit_guess`, `set_ready`, `set_pool`, `set_name`, `start_game`,
+`reset_room`, `delete_photo`, `touch_player`, and `uploaderId` in `process-photo`.
+
+**Other hardening:**
 - Rate limiting / abuse (room + upload creation) on the free tier.
 - Orphaned storage cleanup (display images from deleted photos/rooms).
 

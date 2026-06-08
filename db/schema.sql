@@ -153,14 +153,17 @@ grant execute on function public.get_leaderboard(uuid) to anon;
 -- (replaces their current pooled set, so they can re-pick before playing starts).
 create or replace function public.set_pool(p_player_id uuid, p_photo_ids uuid[])
 returns int language plpgsql security definer set search_path = public as $$
-declare v_count int;
+declare v_room uuid; v_cap int; v_count int;
 begin
-  if not exists (select 1 from players where id = p_player_id) then
-    raise exception 'invalid player';
-  end if;
+  select room_id into v_room from players where id = p_player_id;
+  if v_room is null then raise exception 'invalid player'; end if;
+  select photos_per_player into v_cap from rooms where id = v_room;
   update photos set in_pool = false where uploader_id = p_player_id;
-  update photos set in_pool = true
-    where id = any(p_photo_ids) and uploader_id = p_player_id and status = 'ready';
+  update photos set in_pool = true where id in (             -- enforce per-player cap server-side
+    select id from photos
+    where id = any(p_photo_ids) and uploader_id = p_player_id and status = 'ready'
+    order by created_at limit v_cap
+  );
   select count(*) into v_count from photos where uploader_id = p_player_id and in_pool = true;
   return v_count;
 end; $$;
@@ -208,21 +211,8 @@ $$;
 revoke all on function public.set_ready(uuid, boolean) from public;
 grant execute on function public.set_ready(uuid, boolean) to anon;
 
--- Reveal results: only photos this player already guessed (truth safe post-guess).
-create or replace function public.get_results(p_player_id uuid)
-returns table(photo_id uuid, display_url text,
-              truth_lat double precision, truth_lng double precision,
-              guess_lat double precision, guess_lng double precision,
-              distance_km double precision, points integer)
-language sql security definer set search_path = public as $$
-  select g.photo_id, ph.display_url, ph.truth_lat, ph.truth_lng,
-         g.guess_lat, g.guess_lng, g.distance_km, g.points
-  from guesses g join photos ph on ph.id = g.photo_id
-  where g.player_id = p_player_id
-  order by g.created_at;
-$$;
-revoke all on function public.get_results(uuid) from public;
-grant execute on function public.get_results(uuid) to anon;
+-- NOTE: get_results RPC was removed (it could leak truth to a spoofed player_id).
+-- The client builds the reveal map from truths it cached from submit_guess.
 
 -- Host-only rematch: clear pool + guesses + ready, back to lobby (same room).
 create or replace function public.reset_room(p_player_id uuid)

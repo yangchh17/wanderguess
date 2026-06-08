@@ -752,13 +752,18 @@ function ensureResultsMap(){
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(rmap);
   new ResizeObserver(() => rmap.invalidateSize()).observe(document.getElementById('r-map'));
 }
+// Reveal data comes from truths the client already received via submit_guess
+// (cached locally) — no server call that could leak others' answers.
+function resultsKey(){ return `wg.res.${session.roomId}.${session.playerId}.${roomSeq}`; }
+function getResultsCache(){ try { return JSON.parse(localStorage.getItem(resultsKey()) || '[]'); } catch { return []; } }
+function addResult(r){ const a = getResultsCache(); a.push(r); localStorage.setItem(resultsKey(), JSON.stringify(a)); }
+
 async function openResults(){
-  const { data } = await sb.rpc('get_results', { p_player_id: session.playerId });
   $('s-results').classList.add('on');
   ensureResultsMap();
   setTimeout(() => rmap.invalidateSize(), 60);
   rLayers.forEach(l => rmap.removeLayer(l)); rLayers = [];
-  const rows = data || [];
+  const rows = getResultsCache();
   if (!rows.length) { rmap.setView([20, 0], 2); return; }
   const bounds = [];
   for (const r of rows){
@@ -836,6 +841,9 @@ async function confirmGuess2(){
 
   gstate.phase = 'revealed';
   addDone(ph.id);
+  addResult({ display_url: ph.display_url, truth_lat: truth.lat, truth_lng: truth.lng,
+    guess_lat: gstate.guess.lat, guess_lng: gstate.guess.lng,
+    distance_km: res.distance_km, points: res.points });   // for the local reveal map
   gstate.score += res.points;                 // server value is the source of truth
   $('g-score').textContent = gstate.score.toLocaleString();
 
