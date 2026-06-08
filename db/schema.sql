@@ -167,6 +167,14 @@ end; $$;
 revoke all on function public.set_pool(uuid, uuid[]) from public;
 grant execute on function public.set_pool(uuid, uuid[]) to anon;
 
+-- Uploader can delete their own photo (cascades its guesses).
+create or replace function public.delete_photo(p_player_id uuid, p_photo_id uuid)
+returns void language sql security definer set search_path = public as $$
+  delete from public.photos where id = p_photo_id and uploader_id = p_player_id;
+$$;
+revoke all on function public.delete_photo(uuid, uuid) from public;
+grant execute on function public.delete_photo(uuid, uuid) to anon;
+
 -- Rename a player (e.g., rejoining with a different name).
 create or replace function public.set_name(p_player_id uuid, p_name text)
 returns void language sql security definer set search_path = public as $$

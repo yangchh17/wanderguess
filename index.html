@@ -43,6 +43,9 @@
     .up .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
     .up .st{font-size:.78rem;color:var(--mut);margin-top:2px}
     .up .act{flex:0 0 auto;padding:9px 12px;border:none;border-radius:8px;background:var(--accent);color:#0f1117;font-weight:700;font-size:.8rem;cursor:pointer}
+    .rowhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .linkbtn{background:none;border:none;color:var(--accent);font-size:.85rem;font-weight:600;cursor:pointer;padding:4px}
+    #photos-wrap.collapsed{display:none}
     .mygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
     .mph{position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;border:2px solid var(--line);cursor:pointer;background:#0c0e14}
     .mph img{width:100%;height:100%;object-fit:cover}
@@ -50,6 +53,8 @@
     .mph .tick{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;
       background:rgba(15,17,23,.7);border:2px solid #4a4d60;display:flex;align-items:center;justify-content:center;color:#0f1117;font-size:12px;font-weight:800}
     .mph.sel .tick{background:var(--accent);border-color:var(--accent)}
+    .mph .del{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:50%;border:none;
+      background:rgba(15,17,23,.8);color:#f87c7c;font-size:15px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
     .msg{font-size:.85rem;min-height:1.2em}
     .msg.err{color:var(--bad)} .msg.ok{color:var(--good)}
     label.filepick{display:block;text-align:center;padding:18px;border:2px dashed #3a3d50;border-radius:12px;color:#adb4d4;font-weight:600}
@@ -155,13 +160,19 @@
     </div>
 
     <div class="card">
-      <h2>Your photos <span class="mut" id="ppp-hint"></span></h2>
+      <div class="rowhead">
+        <h2>Your photos <span class="mut" id="ppp-hint"></span></h2>
+        <button id="btn-collapse" class="linkbtn" style="display:none">Hide</button>
+      </div>
       <label class="filepick">
         Add photos from your phone
         <input type="file" id="photo-input" accept="image/*" multiple />
       </label>
-      <div id="uplist" class="uplist"></div>
-      <div id="my-photos" class="mygrid"></div>
+      <div id="up-msg" class="msg"></div>
+      <div id="photos-wrap">
+        <div id="uplist" class="uplist"></div>
+        <div id="my-photos" class="mygrid"></div>
+      </div>
       <button id="btn-pool" class="btn btn-primary" disabled>Add to pool</button>
     </div>
 
@@ -473,22 +484,35 @@ async function refreshLobby(){
   renderLeaderboard($('leaderboard'), lb || []);
 }
 
-// Selectable grid of MY ready photos; pick exactly roomPPP to add to the pool.
+// Selectable grid of MY ready photos; pick up to roomPPP to add to the pool.
 function renderMyPhotos(mine){
   if (mySelected === null) mySelected = new Set(mine.filter(p => p.in_pool).map(p => p.id));
   const present = new Set(mine.map(p => p.id));
   for (const id of [...mySelected]) if (!present.has(id)) mySelected.delete(id);
 
+  $('btn-collapse').style.display = mine.length ? '' : 'none';
+
   const grid = $('my-photos');
   grid.innerHTML = mine.map(p =>
     `<div class="mph ${mySelected.has(p.id) ? 'sel' : ''}" data-id="${p.id}">` +
-    `<img src="${p.display_url}" alt=""/><div class="tick">✓</div></div>`).join('');
-  grid.querySelectorAll('.mph').forEach(el => el.addEventListener('click', () => {
-    const id = el.dataset.id;
-    if (mySelected.has(id)) mySelected.delete(id);
-    else { if (mySelected.size >= roomPPP) return; mySelected.add(id); }
-    renderMyPhotos(mine);
-  }));
+    `<img src="${p.display_url}" alt=""/><div class="tick">✓</div><button class="del" title="Delete">×</button></div>`).join('');
+
+  grid.querySelectorAll('.mph').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.id;
+      if (mySelected.has(id)) mySelected.delete(id);
+      else { if (mySelected.size >= roomPPP) return; mySelected.add(id); }
+      renderMyPhotos(mine);
+    });
+    el.querySelector('.del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this photo?')) return;
+      await sb.rpc('delete_photo', { p_player_id: session.playerId, p_photo_id: el.dataset.id });
+      forgetUp(el.dataset.id);
+      mySelected.delete(el.dataset.id);
+      refreshLobby();
+    });
+  });
 
   const n = mySelected.size;
   const btn = $('btn-pool');
@@ -565,13 +589,33 @@ $('pinmap-use').addEventListener('click', () => {
 });
 $('pinmap-cancel').addEventListener('click', () => closePin(null));
 
-// ──────────────── Upload (hybrid: auto-EXIF, else pin) ────────────────
-$('photo-input').addEventListener('change', async (e) => {
-  const files = [...e.target.files].slice(0, 10);   // allow uploading several; pick N for the pool
+// ──────────────── Upload (non-blocking; auto-EXIF or per-photo pin) ────────────────
+// Dedup memory (per room+player): keys = "name|size", map = photoId -> key.
+function upKey(){ return `wg.up.${session.roomId}.${session.playerId}`; }
+function getUp(){ try { return JSON.parse(localStorage.getItem(upKey()) || '{"keys":[],"map":{}}'); } catch { return { keys: [], map: {} }; } }
+function saveUp(u){ localStorage.setItem(upKey(), JSON.stringify(u)); }
+function fileKey(f){ return `${f.name}|${f.size}`; }
+function isDup(f){ return getUp().keys.includes(fileKey(f)); }
+function recordUp(f, photoId){ const u = getUp(); const k = fileKey(f); if (!u.keys.includes(k)) u.keys.push(k); u.map[photoId] = k; saveUp(u); }
+function forgetUp(photoId){ const u = getUp(); const k = u.map[photoId]; if (k){ u.keys = u.keys.filter(x => x !== k); delete u.map[photoId]; saveUp(u); } }
+
+// Limit concurrent heavy decodes so a big batch doesn't stall the phone.
+let decodeSlots = 2; const decodeWaiters = [];
+async function withDecodeSlot(fn){
+  if (decodeSlots <= 0) await new Promise(res => decodeWaiters.push(res));
+  decodeSlots--;
+  try { return await fn(); } finally { decodeSlots++; const w = decodeWaiters.shift(); if (w) w(); }
+}
+
+$('photo-input').addEventListener('change', (e) => {
+  const picked = [...e.target.files].slice(0, 10);
   e.target.value = '';
-  if (!files.length) return;
-  for (const file of files) await uploadOne(file);   // sequential (one pin at a time)
-  refreshLobby();
+  if (!picked.length) return;
+  const seen = new Set(); const fresh = [];
+  for (const f of picked){ const k = fileKey(f); if (isDup(f) || seen.has(k)) continue; seen.add(k); fresh.push(f); }
+  const skipped = picked.length - fresh.length;
+  $('up-msg').className = 'msg'; $('up-msg').textContent = skipped ? `${skipped} already added — skipped` : '';
+  fresh.forEach(uploadOne);   // fire independently — one photo's pin never blocks the rest
 });
 
 async function uploadOne(file){
@@ -581,60 +625,51 @@ async function uploadOne(file){
     `<div class="nm">${escapeHtml(file.name || 'photo')}</div><div class="st">preparing…</div></div>`;
   $('uplist').appendChild(row);
   const thumbEl = row.querySelector('.thumb');
-  const stEl = row.querySelector('.st');
-  const setSt = t => { stEl.textContent = t; };
+  const setSt = t => { row.querySelector('.st').textContent = t; };
   const setCls = c => { row.className = 'up ' + c; };
 
   try {
-    // Decode a display JPEG once (HEIC → JPEG; else the file itself). Reused for
-    // preview AND upload, so HEIC is decoded only once.
-    const { blob, contentType } = await makeDisplaySource(file);
+    const { blob, contentType } = await withDecodeSlot(() => makeDisplaySource(file));
     const previewUrl = URL.createObjectURL(blob);
     thumbEl.src = previewUrl;
 
-    // 1) Try to auto-locate from EXIF in the browser (works on desktop / some Android).
     let coord = null;
-    try {
-      const g = await exifr.gps(file);
-      if (g && g.latitude != null && g.longitude != null) coord = { lat: g.latitude, lng: g.longitude };
-    } catch {}
+    try { const g = await exifr.gps(file); if (g && g.latitude != null && g.longitude != null) coord = { lat: g.latitude, lng: g.longitude }; } catch {}
 
-    // 2) No GPS → ask the uploader to drop a pin (seeing the photo to recall where).
+    async function doUpload(){
+      setSt('uploading…');
+      const photoId = uuid();
+      const srcPath = `${session.roomId}/${photoId}.src`;
+      const up = await sb.storage.from('uploads').upload(srcPath, blob, { contentType });
+      if (up.error) { setCls('bad'); setSt('error: ' + up.error.message); return; }
+      setSt('processing…');
+      const { data, error } = await sb.functions.invoke('process-photo', {
+        body: { roomId: session.roomId, uploaderId: session.playerId, photoId, srcPath, lat: coord.lat, lng: coord.lng },
+      });
+      if (error) {
+        let detail = error.message;
+        try { if (error.context) detail = (await error.context.json()).error || detail; } catch {}
+        if (/uploader\/room/.test(detail)) detail += ' — try leaving and rejoining';
+        setCls('bad'); setSt('error: ' + detail); return;
+      }
+      if (data.status === 'ready')        { setCls('ok'); setSt('added ✓'); recordUp(file, photoId); refreshLobby(); setTimeout(() => row.remove(), 1200); }
+      else if (data.status === 'rejected'){ setCls('bad'); setSt(data.error || 'rejected'); }
+      else                                { setCls('bad'); setSt('unexpected response'); }
+    }
+
     if (coord) {
-      setSt(`auto-located 📍 ${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`);
+      await doUpload();
     } else {
-      setSt('no GPS in this photo — set the location');
+      setSt('no GPS — tap “Set location”');
       const btn = document.createElement('button');
       btn.className = 'act'; btn.textContent = 'Set location';
       row.appendChild(btn);
-      coord = await new Promise(res => btn.addEventListener('click',
-        async () => res(await pickLocationOnMap(previewUrl)), { once: true }));
-      if (!coord) { setCls('bad'); setSt('skipped — no location set'); return; }
-      btn.remove();
-      setSt(`pinned 📍 ${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`);
+      btn.addEventListener('click', async () => {
+        const c = await pickLocationOnMap(previewUrl);   // shared overlay → one pin at a time
+        if (!c) return;                                   // cancelled — keep button to retry
+        coord = c; btn.remove(); await doUpload();
+      });
     }
-
-    // 3) Upload the display source, then let the server strip + store the truth.
-    setSt('uploading…');
-    const photoId = uuid();
-    const srcPath = `${session.roomId}/${photoId}.src`;
-    const up = await sb.storage.from('uploads').upload(srcPath, blob, { contentType });
-    if (up.error) throw up.error;
-
-    setSt('processing…');
-    const { data, error } = await sb.functions.invoke('process-photo', {
-      body: { roomId: session.roomId, uploaderId: session.playerId, photoId, srcPath, lat: coord.lat, lng: coord.lng },
-    });
-    if (error) {
-      let detail = error.message;
-      try { if (error.context) detail = (await error.context.json()).error || detail; } catch {}
-      if (/uploader\/room/.test(detail)) detail += ' — try leaving and rejoining the room';
-      throw new Error(detail);
-    }
-
-    if (data.status === 'ready')         { setCls('ok'); setSt('uploaded ✓ — select it below'); }
-    else if (data.status === 'rejected') { setCls('bad'); setSt(data.error || 'rejected'); }
-    else                                 { setCls('bad'); setSt('unexpected response'); }
   } catch (e) {
     setCls('bad'); setSt('error: ' + (e.message || e));
   }
@@ -839,6 +874,10 @@ function exitPlay(){ clearTimer(); $('s-play').classList.remove('on'); refreshLo
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
 $('btn-pool').addEventListener('click', submitPool);
+$('btn-collapse').addEventListener('click', () => {
+  const w = $('photos-wrap'); const hidden = w.classList.toggle('collapsed');
+  $('btn-collapse').textContent = hidden ? 'Show' : 'Hide';
+});
 $('btn-ready').addEventListener('click', async () => {
   const next = $('btn-ready').dataset.ready !== '1';
   $('btn-ready').disabled = true;
