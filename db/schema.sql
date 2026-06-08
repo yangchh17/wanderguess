@@ -27,6 +27,7 @@ create table if not exists public.players (
   token      uuid not null default gen_random_uuid(),  -- secret identity
   ready      boolean not null default false,           -- ready-gate
   last_seen  timestamptz not null default now(),       -- presence (online/offline)
+  user_id    uuid default auth.uid(),                  -- anon-auth identity (set via default; not spoofable)
   created_at timestamptz not null default now()
 );
 
@@ -231,6 +232,44 @@ begin
 end; $$;
 revoke all on function public.reset_room(uuid) from public;
 grant execute on function public.reset_room(uuid) to anon;
+
+-- ============================================================
+--  Anonymous-auth hardening — STAGE 1 (roles + column lockdown)
+--  Anon-auth clients use the 'authenticated' role. Allow it everywhere anon was
+--  allowed, and keep truth/token columns out of reach of BOTH roles.
+--  Requires "Anonymous sign-ins" enabled in Supabase Auth settings.
+--  STAGE 2 (per-RPC ownership via auth.uid()) is pending — see ROADMAP/REVIEW.
+-- ============================================================
+alter policy rooms_insert   on public.rooms   to anon, authenticated;
+alter policy rooms_select   on public.rooms   to anon, authenticated;
+alter policy players_insert on public.players to anon, authenticated;
+alter policy players_select on public.players to anon, authenticated;
+alter policy photos_select  on public.photos  to anon, authenticated;
+alter policy "anon upload to uploads" on storage.objects to anon, authenticated;
+
+revoke all on public.photos from anon, authenticated;
+grant select (id, room_id, uploader_id, status, display_url, error, in_pool, created_at)
+  on public.photos to anon, authenticated;
+
+revoke all on public.players from anon, authenticated;             -- hides `token`
+grant select (id, room_id, name, ready, last_seen, created_at, user_id)
+  on public.players to anon, authenticated;
+grant insert (room_id, name) on public.players to anon, authenticated;  -- user_id comes from the default only
+
+revoke all on public.guesses from anon, authenticated;             -- RPC-only
+grant select, insert on public.rooms to anon, authenticated;
+grant select on public.photos_public to anon, authenticated;
+grant select on public.roster        to anon, authenticated;
+
+grant execute on function public.submit_guess(uuid,uuid,double precision,double precision) to authenticated;
+grant execute on function public.get_leaderboard(uuid)    to authenticated;
+grant execute on function public.set_pool(uuid, uuid[])   to authenticated;
+grant execute on function public.set_ready(uuid, boolean) to authenticated;
+grant execute on function public.start_game(uuid)         to authenticated;
+grant execute on function public.reset_room(uuid)         to authenticated;
+grant execute on function public.delete_photo(uuid, uuid) to authenticated;
+grant execute on function public.touch_player(uuid)       to authenticated;
+grant execute on function public.set_name(uuid, text)     to authenticated;
 
 -- Host = earliest player in the room; only the host can start.
 create or replace function public.start_game(p_player_id uuid)

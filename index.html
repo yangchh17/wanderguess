@@ -267,6 +267,17 @@ if (!window.SUPA || window.SUPA.url.includes('YOUR-PROJECT')) {
 }
 const sb = createClient(window.SUPA.url, window.SUPA.anonKey);
 
+// Silent anonymous auth: gives every client a real identity (auth.uid()) so the
+// server can't be told "I'm player X" — it knows. Session persists across reloads.
+let _authReady = null;
+function ensureAuth(){
+  if (!_authReady) _authReady = (async () => {
+    const { data } = await sb.auth.getSession();
+    if (!data.session) { const r = await sb.auth.signInAnonymously(); if (r.error) console.error('anon auth failed', r.error); }
+  })();
+  return _authReady;
+}
+
 // ---- identity (per browser, persisted) ----
 const LS = 'geoguessur.session';
 let session = JSON.parse(localStorage.getItem(LS) || 'null'); // {roomId, code, playerId, name}
@@ -305,6 +316,7 @@ $('btn-create').addEventListener('click', async () => {
   if (!name) return msgHome('Enter your name first.', true);
   $('btn-create').disabled = true;
   try {
+    await ensureAuth();
     const ppp = Math.max(1, Math.min(10, parseInt($('ppp').value, 10) || 3));
     const sppRaw = $('spp').value;
     const spp = sppRaw === '' ? null : parseInt(sppRaw, 10);   // null = no limit
@@ -316,7 +328,7 @@ $('btn-create').addEventListener('click', async () => {
     }
     if (!room) throw new Error('could not allocate a room code');
     const { data: player, error: pe } = await sb.from('players')
-      .insert({ room_id: room.id, name }).select().single();
+      .insert({ room_id: room.id, name }).select('id,name').single();
     if (pe) throw pe;
     rememberId(room.code, { roomId: room.id, playerId: player.id, name });
     saveSession({ roomId: room.id, code: room.code, playerId: player.id, name });
@@ -333,6 +345,7 @@ $('btn-join').addEventListener('click', async () => {
   if (!code) return msgHome('Enter a room code.', true);
   $('btn-join').disabled = true;
   try {
+    await ensureAuth();
     const { data: room, error } = await sb.from('rooms').select('*').eq('code', code).maybeSingle();
     if (error) throw error;
     if (!room) return msgHome('No room with that code.', true);
@@ -355,7 +368,7 @@ $('btn-join').addEventListener('click', async () => {
       const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', room.id);
       if ((count ?? 0) >= 6) return msgHome('That room is full (6 players).', true);
       const { data: np, error: pe } = await sb.from('players')
-        .insert({ room_id: room.id, name }).select().single();
+        .insert({ room_id: room.id, name }).select('id,name').single();
       if (pe) throw pe;
       player = np;
       rememberId(room.code, { roomId: room.id, playerId: player.id, name });
@@ -921,8 +934,8 @@ $('g-stage').addEventListener('contextmenu', e => e.preventDefault());   // bloc
 
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// resume an existing session if present
-if (session && session.roomId) enterLobby();
+// resume an existing session if present (after auth is ready)
+ensureAuth().then(() => { if (session && session.roomId) enterLobby(); });
 </script>
 </body>
 </html>

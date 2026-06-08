@@ -32,14 +32,19 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
 - ✅ `process-photo` validates `srcPath` is under the room's prefix.
 - Decision: `start_game` keeps host override (start with AFK/unready players) — by design.
 
-**Auth-hardening slice (needs per-client identity — do before public/wider launch):**
-The remaining issues are *impersonation* (acting as another player), because RPCs
-trust a readable `player_id`. Chosen approach **TBD by owner**:
-- *Recommended:* **Supabase anonymous auth** → use `auth.uid()` in RPCs/RLS; also
-  the on-ramp to real accounts (anonymous → upgrade to email, keep history).
-- *Alt:* manual `players.token` on every RPC + lock down the token column.
-Covers: `submit_guess`, `set_ready`, `set_pool`, `set_name`, `start_game`,
-`reset_room`, `delete_photo`, `touch_player`, and `uploaderId` in `process-photo`.
+**Auth-hardening slice — chosen: Supabase anonymous auth (in progress).**
+- ✅ **Stage 1 (roles + column lockdown):** clients sign in anonymously
+  (`authenticated` role); `players.user_id` added (default `auth.uid()`, not
+  spoofable); all policies/grants extended to `authenticated`; truth + `players.token`
+  revoked from both roles. Client `ensureAuth()` falls back to anon gracefully.
+- ⚠️ **REQUIRES owner action:** enable **Anonymous sign-ins** in Supabase →
+  Authentication → Sign In / Providers. Until then clients run as `anon` (works,
+  but unhardened).
+- ⬜ **Stage 2 (ownership via auth.uid()):** add `and user_id = auth.uid()` guards to
+  `submit_guess`, `set_ready`, `set_pool`, `set_name`, `start_game`, `reset_room`,
+  `delete_photo`, `touch_player`; verify uploader in `process-photo` via the caller's
+  JWT. **Do after anon sign-ins are enabled + the auth client is deployed.**
+- Later: anonymous → real account upgrade (email), unlocking history + photo archive.
 
 **Other hardening:**
 - Rate limiting / abuse (room + upload creation) on the free tier.
