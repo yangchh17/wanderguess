@@ -118,13 +118,12 @@ token — it closes the same spoof surface *and* bootstraps real accounts/histor
   secret exists anymore. Identity is the JWT's `auth.uid()`; `players.token` and the
   truth columns are revoked from both `anon` and `authenticated`. Roster fields are
   exposed via the `roster`/`photos_public` views only.
-- **#3 `process-photo` trusts client `uploaderId`** — **Resolved (the uploaderId
-  spoof specifically).** Edge Function v7 runs with `verify_jwt = true`, derives the
-  caller's uid from the JWT (`auth.getUser()`), and processes only when
-  `players.user_id = uid` for the given uploader+room (else 403). `srcPath` prefix
-  check retained. (`lat`/`lng` remain by design — the uploader owns their own photo's
-  truth.) **NOTE:** v7 authenticates *who the caller is* but not *which photo row they
-  write* — see open finding **#6** below. So the edge function is **not** fully closed.
+- **#3 `process-photo` trusts client `uploaderId`** — **Resolved.** Edge Function
+  (v7) runs with `verify_jwt = true`, derives the caller's uid from the JWT
+  (`auth.getUser()`), and processes only when `players.user_id = uid` for the given
+  uploader+room (else 403). (`lat`/`lng` remain by design — the uploader owns their
+  own photo's truth.) The companion write-authorization gap (*which row* the caller
+  may write) is closed in **v8** — see finding **#6** below.
 - **`player_id`-spoof on every definer RPC** — **Resolved.** Stage 2 migration
   `anon_auth_stage2_ownership_guards` adds `and user_id = auth.uid()` to
   `touch_player`/`set_ready`/`set_name`/`set_pool`/`submit_guess`/`start_game`/
@@ -169,7 +168,7 @@ wiped — they'd fail the new guards. Clients sign in anonymously on load via
 `ensureAuth()`; the uid persists in localStorage and is upgradeable to a real
 account later (history/accounts are the next slice).
 
-### Open finding (self-reported during round-2 self-review)
+### Finding from round-2 review (self-reported, confirmed by Codex) — FIXED in v8
 - **[high] #6 `process-photo`: client-controlled `photoId` allows arbitrary
   photo-row overwrite.** v7 verifies the caller owns `uploaderId`, but `photoId`
   is still client-supplied (`index.html:675/681`) and the final write is a
@@ -182,8 +181,20 @@ account later (history/accounts are the next slice).
   the display image, also `upsert:true`). Impact: integrity/availability (hijack or
   destroy any photo in any room); **no truth leak** (function never returns truth).
   Distinct from the original #3 (uploaderId spoof), which *is* fixed.
-  → **Proposed fix:** before the upsert, reject if the row exists and isn't already
-  the caller's (`select uploader_id, room_id from photos where id = photoId`; 403 on
-  mismatch). Stronger: generate `photoId` server-side and ignore the client value.
-  Defense-in-depth: scope `photos_public` to the caller's own rooms.
-  → **Status:** not yet patched; recorded here before claiming round-2 closed.
+  → **Fix (v8, deployed):** before any write, the function looks up
+  `select uploader_id, room_id from photos where id = photoId` and returns **403 "not
+  your photo"** if a row already exists that isn't the caller's own player+room (a
+  brand-new id is still fine to create). Also tightened `srcPath` from a
+  `startsWith(roomId + "/")` prefix check to **exact equality** with
+  `${roomId}/${photoId}.src` (per Codex's medium finding), so the source key can't
+  point at another photo's upload.
+  → **Verified end-to-end:** seeded a victim photo (room V, player Vp); an
+  authenticated attacker with their *own* valid room+player called `process-photo`
+  with `photoId` = the victim's id and `srcPath = ${attackerRoom}/${victimId}.src`
+  → **403 "not your photo"**, and the victim row was confirmed unchanged
+  (truth/display/room/uploader all intact). A mismatched `srcPath` → **400 "bad
+  source path"**.
+  → **Still open (defense-in-depth, lower priority):** `photos_public` is still
+  `using (true)` (every client can enumerate all rooms' photo metadata + display
+  URLs). No longer exploitable for overwrite, but worth scoping to the caller's own
+  rooms — tracked in ROADMAP under "Other hardening".

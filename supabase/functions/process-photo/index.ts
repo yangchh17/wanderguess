@@ -1,4 +1,5 @@
-// process-photo (v7 — anon-auth: verify caller owns the uploader player)
+// process-photo (v8 — anon-auth: verify caller owns the uploader player AND the
+// target photo row; srcPath pinned to the exact ${roomId}/${photoId}.src key)
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
@@ -19,7 +20,9 @@ Deno.serve(async (req) => {
     const { roomId, uploaderId, photoId, srcPath, lat, lng } = await req.json();
     if (!roomId || !uploaderId || !photoId || !srcPath)
       return json({ error: "missing fields" }, 400);
-    if (typeof srcPath !== "string" || !srcPath.startsWith(`${roomId}/`))
+    // srcPath is fully determined by roomId + photoId — pin it exactly so a caller
+    // can't point at another room's/photo's upload.
+    if (typeof srcPath !== "string" || srcPath !== `${roomId}/${photoId}.src`)
       return json({ error: "bad source path" }, 400);
 
     const nlat = Number(lat), nlng = Number(lng);
@@ -39,6 +42,15 @@ Deno.serve(async (req) => {
     const { data: player } = await admin.from("players").select("id")
       .eq("id", uploaderId).eq("room_id", roomId).eq("user_id", uid).maybeSingle();
     if (!player) return json({ error: "not your player for this room" }, 403);
+
+    // photoId is client-supplied; the writes below are service-role upserts keyed on
+    // the PK, so a conflict would UPDATE an existing row. Reject if a row with this
+    // id already exists and isn't already the caller's (own player + own room) — this
+    // closes the cross-room photo-row overwrite vector (a new id is fine to create).
+    const { data: existing } = await admin.from("photos")
+      .select("uploader_id, room_id").eq("id", photoId).maybeSingle();
+    if (existing && (existing.uploader_id !== uploaderId || existing.room_id !== roomId))
+      return json({ error: "not your photo" }, 403);
 
     const src = await admin.storage.from("uploads").download(srcPath);
     if (src.error || !src.data) return json({ error: "source not found" }, 404);

@@ -32,7 +32,8 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
 - ✅ `process-photo` validates `srcPath` is under the room's prefix.
 - Decision: `start_game` keeps host override (start with AFK/unready players) — by design.
 
-**Auth-hardening slice — DONE: Supabase anonymous auth.** Impersonation closed.
+**Auth-hardening slice — Supabase anonymous auth.** Impersonation closed; photo-row
+overwrite closed (v8).
 - ✅ **Stage 1 (roles + column lockdown):** clients sign in anonymously
   (`authenticated` role); `players.user_id` added (default `auth.uid()`, not
   spoofable); all policies/grants extended to `authenticated`; truth + `players.token`
@@ -42,12 +43,18 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
   to own the player (`and user_id = auth.uid()` on `submit_guess`, `set_ready`,
   `set_pool`, `set_name`, `start_game`, `reset_room`, `delete_photo`, `touch_player`);
   `players_insert` policy enforces `with check (user_id = auth.uid())`. `process-photo`
-  v7 runs with `verify_jwt`, derives the caller's uid from the JWT, and processes only
-  the uploader's own photo. **Verified end-to-end**: cross-identity spoof rejected with
-  "not your player". (Codex #1 + #3-uploader + the whole player_id-spoof surface closed.)
+  runs with `verify_jwt`, derives the caller's uid from the JWT, verifies the caller
+  owns the uploader player, and (v8) verifies the caller owns the target `photoId`
+  before writing — with `srcPath` pinned to the exact `${roomId}/${photoId}.src` key.
+  **Verified end-to-end**: cross-identity RPC spoof → "not your player"; cross-room
+  photo overwrite → 403 "not your photo" (victim row unchanged). (Codex #1, #3, #6 and
+  the whole player_id-spoof surface closed.)
 - Later: anonymous → real account upgrade (email), unlocking history + photo archive.
 
 **Other hardening:**
+- Scope `photos_public` to the caller's own rooms (currently `using (true)` — every
+  client can enumerate all rooms' photo metadata + display URLs). Defense-in-depth /
+  privacy; no longer an overwrite vector after v8.
 - Rate limiting / abuse (room + upload creation) on the free tier.
 - Orphaned storage cleanup (display images from deleted photos/rooms).
 
