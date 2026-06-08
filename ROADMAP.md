@@ -1,0 +1,83 @@
+# Wanderguess — Roadmap & Status
+
+Source of truth for what's done and what's next. Update on each meaningful change.
+(Day-to-day progress also lives in git history; this is the durable summary.)
+
+Live: https://wanderguess.yangchh.workers.dev · Repo: yangchh17/wanderguess
+Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage + Edge Functions).
+
+---
+
+## ✅ Done (deployed)
+- Lobby: create / join by code; rejoin reuses identity (rename supported).
+- Presence: heartbeat + server-computed `online` (roster view) — Safari-safe.
+- Host-controlled start (host = earliest player); host-start gated on online-ready.
+- Upload: client decode+downscale (HEIC via heic2any), hybrid location
+  (auto EXIF where it survives, else map pin), non-blocking batch, dedup, delete,
+  collapsible grid.
+- Pool selection: each player adds up to N (host-set) photos; N is a max.
+- Async play: per-photo timer (host-set, "No limit" option) with pause/resume;
+  players enter on their own time (no auto-enter).
+- Scoring: server-authoritative `submit_guess` (matches shared/geo.js); shared
+  leaderboard; anti-cheat (guess photo is a CSS background, no save/right-click).
+- End game: "See all locations" reveal map (photo + score per point, only photos
+  you've guessed); host same-room rematch keeps uploaded photos (game_seq scopes
+  guess-memory); scores reset per game.
+
+## ⛏ Hardening (do before any public/anonymous launch)
+- RPCs trust a client-supplied `player_id` (spoofable by someone in the room).
+  Require the secret `players.token` on `submit_guess`, `set_ready`, `set_pool`,
+  `set_name`, `start_game`, `reset_room`, `delete_photo`, `touch_player`.
+- Rate limiting / abuse (room + upload creation) on the free tier.
+- Orphaned storage cleanup (display images from deleted photos/rooms).
+
+---
+
+## 🎯 Next big features (pick one)
+
+### A. Sync mode (live "race the same photo on a clock")
+Default stays async; sync is opt-in. The marquee competitive mode.
+
+**S1 — Server round engine**
+- Room mode: `rooms.mode text default 'async'` ('async' | 'sync').
+- Round state on room (or a `rounds` table): `photo_order uuid[]` (shuffled pool),
+  `round_idx int`, `round_started_at timestamptz`, `round_ends_at timestamptz`.
+- `start_game` (sync): build shuffled order from the pool, set round 0,
+  started_at=now(), ends_at=now()+seconds_per_photo, status='playing'.
+- `advance_round(room, from_idx)` RPC, **guarded by from_idx** (idempotent — only
+  advances if current round_idx == from_idx) so concurrent client calls are safe.
+  Advances when `now() >= round_ends_at` OR all online players have guessed the
+  current photo; sets next round timestamps, or status='finished' at the end.
+- Verify: RPC-level tests (advance on timeout; advance when all guessed; no
+  double-advance).
+
+**S2 — Sync client**
+- Lobby: host toggles room mode (sync/async). (Optional v2: per-player opt-in —
+  players flag "sync", host start pulls in the sync-flagged ready players.)
+- Play: render the current photo from round state; countdown derived from
+  `round_ends_at` (server time → all clocks agree); submit guess; on round end,
+  reveal that photo's truth to everyone, brief between-round summary, then the
+  next photo appears for all simultaneously.
+- A watchdog (poll ~1s during sync play) triggers `advance_round` when due.
+- Final: shared scoreboard + reveal map.
+
+**S3 — Realtime & polish**
+- Supabase Realtime (postgres_changes on the room) for instant transitions
+  instead of 1s polling; reconnection handling; late-join = spectate till next game.
+
+### B. Accounts, history & photo archive (retention layer)
+Build when there are returning players. Keep **guest play forever**.
+- Supabase Auth (email magic-link / Google / Apple); `players.user_id` links a
+  guest identity to an account.
+- **Game history & lifetime stats** (query guesses/rooms by user_id).
+- **Photo archive ("select from your stack")**: a user-owned library of
+  previously uploaded (already EXIF-stripped, truth-bearing) photos, reusable in
+  any new room without re-uploading. *(This is the user's "save to account" ask —
+  download-to-device stays disabled for anti-cheat; archive lives server-side.)*
+- Friends + friend leaderboards + invites (after the above).
+
+---
+
+## 🧊 Out of scope (for now)
+- Saving photos to the device gallery (web can't; conflicts with anti-cheat).
+- Native app (would enable reliable auto-locate + screenshot protection).
