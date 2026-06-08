@@ -297,3 +297,106 @@ grant execute on function public.start_game(uuid) to anon;
 --    alter table public.guesses add column round_id uuid references public.rounds(id);
 --  Nothing above needs restructuring for that — guesses already key on photo_id.
 -- ============================================================
+
+
+-- ============================================================
+--  ANON-AUTH STAGE 2 — ownership guards (auth.uid())
+--  Supersedes the RPC bodies above. Clients sign in (anonymously or with a real
+--  account); every player row carries user_id = auth.uid() (set at insert, RLS-
+--  enforced). Each definer RPC now requires the caller to OWN the player it acts
+--  on, so a room participant can no longer spoof another player's id. Mutating
+--  RPCs (submit_guess/set_pool/start_game/reset_room) raise on a mismatch; the
+--  fire-and-forget ones (touch_player/set_ready/set_name/delete_photo) simply
+--  affect zero rows. The process-photo Edge Function does the same via the JWT
+--  (see supabase/functions/process-photo/index.ts, v7).
+-- ============================================================
+
+-- Players may only insert a row owned by their own auth identity.
+drop policy if exists players_insert on public.players;
+create policy players_insert on public.players
+  for insert to anon, authenticated with check (user_id = auth.uid());
+
+create or replace function public.touch_player(p_player_id uuid)
+returns void language sql security definer set search_path = public as $$
+  update public.players set last_seen = now() where id = p_player_id and user_id = auth.uid();
+$$;
+
+create or replace function public.set_ready(p_player_id uuid, p_ready boolean)
+returns void language sql security definer set search_path = public as $$
+  update public.players set ready = p_ready where id = p_player_id and user_id = auth.uid();
+$$;
+
+create or replace function public.set_name(p_player_id uuid, p_name text)
+returns void language sql security definer set search_path = public as $$
+  update public.players set name = p_name where id = p_player_id and user_id = auth.uid() and p_name <> '';
+$$;
+
+create or replace function public.set_pool(p_player_id uuid, p_photo_ids uuid[])
+returns integer language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_cap int; v_count int;
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select photos_per_player into v_cap from rooms where id = v_room;
+  update photos set in_pool = false where uploader_id = p_player_id;
+  update photos set in_pool = true where id in (
+    select id from photos where id = any(p_photo_ids) and uploader_id = p_player_id and status = 'ready'
+    order by created_at limit v_cap);
+  select count(*) into v_count from photos where uploader_id = p_player_id and in_pool = true;
+  return v_count;
+end; $$;
+
+create or replace function public.delete_photo(p_player_id uuid, p_photo_id uuid)
+returns void language sql security definer set search_path = public as $$
+  delete from public.photos where id = p_photo_id and uploader_id = p_player_id
+    and exists (select 1 from public.players where id = p_player_id and user_id = auth.uid());
+$$;
+
+create or replace function public.submit_guess(p_photo_id uuid, p_player_id uuid,
+  p_guess_lat double precision, p_guess_lng double precision)
+returns table(truth_lat double precision, truth_lng double precision, distance_km double precision, points integer)
+language plpgsql security definer set search_path = public as $$
+declare v_lat double precision; v_lng double precision; v_room uuid; v_dist double precision; v_pts integer;
+begin
+  select ph.truth_lat, ph.truth_lng, ph.room_id into v_lat, v_lng, v_room
+  from photos ph where ph.id = p_photo_id and ph.status = 'ready';
+  if v_lat is null then raise exception 'photo not available'; end if;
+  if not exists (select 1 from players pl where pl.id = p_player_id and pl.room_id = v_room and pl.user_id = auth.uid()) then
+    raise exception 'not your player for this room';
+  end if;
+  v_dist := 6371 * 2 * asin(sqrt(power(sin(radians(v_lat - p_guess_lat)/2),2)
+            + cos(radians(p_guess_lat))*cos(radians(v_lat))*power(sin(radians(v_lng - p_guess_lng)/2),2)));
+  v_pts := round(5000 * exp(-10 * v_dist / 14916.862));
+  insert into guesses(photo_id, player_id, guess_lat, guess_lng, distance_km, points)
+  values (p_photo_id, p_player_id, p_guess_lat, p_guess_lng, v_dist, v_pts)
+  on conflict (photo_id, player_id) do nothing;
+  select g.distance_km, g.points into v_dist, v_pts from guesses g where g.photo_id = p_photo_id and g.player_id = p_player_id;
+  return query select v_lat, v_lng, v_dist, v_pts;
+end; $$;
+
+create or replace function public.start_game(p_player_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_host uuid; v_status text;
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can start the game'; end if;
+  update rooms set status = 'playing' where id = v_room and status = 'lobby';
+  select status into v_status from rooms where id = v_room;
+  return v_status;
+end; $$;
+
+create or replace function public.reset_room(p_player_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_host uuid;
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can start a new game'; end if;
+  delete from guesses where photo_id in (select id from photos where room_id = v_room);
+  update photos  set in_pool = false where room_id = v_room;
+  update players set ready = false   where room_id = v_room;
+  update rooms   set status = 'lobby', game_seq = game_seq + 1 where id = v_room;
+end; $$;

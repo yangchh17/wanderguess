@@ -32,18 +32,19 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
 - ✅ `process-photo` validates `srcPath` is under the room's prefix.
 - Decision: `start_game` keeps host override (start with AFK/unready players) — by design.
 
-**Auth-hardening slice — chosen: Supabase anonymous auth (in progress).**
+**Auth-hardening slice — DONE: Supabase anonymous auth.** Impersonation closed.
 - ✅ **Stage 1 (roles + column lockdown):** clients sign in anonymously
   (`authenticated` role); `players.user_id` added (default `auth.uid()`, not
   spoofable); all policies/grants extended to `authenticated`; truth + `players.token`
   revoked from both roles. Client `ensureAuth()` falls back to anon gracefully.
-- ⚠️ **REQUIRES owner action:** enable **Anonymous sign-ins** in Supabase →
-  Authentication → Sign In / Providers. Until then clients run as `anon` (works,
-  but unhardened).
-- ⬜ **Stage 2 (ownership via auth.uid()):** add `and user_id = auth.uid()` guards to
-  `submit_guess`, `set_ready`, `set_pool`, `set_name`, `start_game`, `reset_room`,
-  `delete_photo`, `touch_player`; verify uploader in `process-photo` via the caller's
-  JWT. **Do after anon sign-ins are enabled + the auth client is deployed.**
+- ✅ **Anonymous sign-ins enabled** in Supabase → Authentication → Sign In / Providers.
+- ✅ **Stage 2 (ownership via auth.uid()):** every definer RPC now requires the caller
+  to own the player (`and user_id = auth.uid()` on `submit_guess`, `set_ready`,
+  `set_pool`, `set_name`, `start_game`, `reset_room`, `delete_photo`, `touch_player`);
+  `players_insert` policy enforces `with check (user_id = auth.uid())`. `process-photo`
+  v7 runs with `verify_jwt`, derives the caller's uid from the JWT, and processes only
+  the uploader's own photo. **Verified end-to-end**: cross-identity spoof rejected with
+  "not your player". (Codex #1 + #3-uploader + the whole player_id-spoof surface closed.)
 - Later: anonymous → real account upgrade (email), unlocking history + photo archive.
 
 **Other hardening:**

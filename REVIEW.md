@@ -106,3 +106,30 @@ _(none yet)_
 **Deferred to auth-hardening (needs per-client identity):** #1, #3-uploaderId, and
 the `player_id`-spoof surface on `submit_guess`/`set_ready`/`set_pool`/`set_name`/
 `start_game`/`reset_room`/`delete_photo`/`touch_player`. Tracked in ROADMAP.
+
+---
+
+### Auth-hardening slice — RESOLVED (Supabase anonymous auth)
+
+Chosen approach: Supabase **anonymous auth** (`auth.uid()`) rather than a hand-rolled
+token — it closes the same spoof surface *and* bootstraps real accounts/history later.
+
+- **#1 token leak via `players_select`** — **Resolved (moot).** No client-visible
+  secret exists anymore. Identity is the JWT's `auth.uid()`; `players.token` and the
+  truth columns are revoked from both `anon` and `authenticated`. Roster fields are
+  exposed via the `roster`/`photos_public` views only.
+- **#3 `process-photo` trusts client `uploaderId`** — **Resolved.** Edge Function v7
+  runs with `verify_jwt = true`, derives the caller's uid from the JWT
+  (`auth.getUser()`), and processes only when `players.user_id = uid` for the given
+  uploader+room (else 403). `srcPath` prefix check retained. (`lat`/`lng` remain by
+  design — the uploader owns their own photo's truth.)
+- **`player_id`-spoof on every definer RPC** — **Resolved.** Stage 2 migration
+  `anon_auth_stage2_ownership_guards` adds `and user_id = auth.uid()` to
+  `touch_player`/`set_ready`/`set_name`/`set_pool`/`submit_guess`/`start_game`/
+  `reset_room`/`delete_photo`, and the `players_insert` policy enforces
+  `with check (user_id = auth.uid())` (uid not spoofable).
+
+**Verified end-to-end (two distinct anon identities A, B in one room):**
+A acting on its own player → `submit_guess` scores 5000. A acting *as* B →
+`submit_guess`/`set_pool` raise **"not your player"**; the fire-and-forget
+`set_ready` no-ops (B.ready stayed false). Impersonation surface closed.
