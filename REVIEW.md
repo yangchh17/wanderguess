@@ -118,11 +118,13 @@ token — it closes the same spoof surface *and* bootstraps real accounts/histor
   secret exists anymore. Identity is the JWT's `auth.uid()`; `players.token` and the
   truth columns are revoked from both `anon` and `authenticated`. Roster fields are
   exposed via the `roster`/`photos_public` views only.
-- **#3 `process-photo` trusts client `uploaderId`** — **Resolved.** Edge Function v7
-  runs with `verify_jwt = true`, derives the caller's uid from the JWT
-  (`auth.getUser()`), and processes only when `players.user_id = uid` for the given
-  uploader+room (else 403). `srcPath` prefix check retained. (`lat`/`lng` remain by
-  design — the uploader owns their own photo's truth.)
+- **#3 `process-photo` trusts client `uploaderId`** — **Resolved (the uploaderId
+  spoof specifically).** Edge Function v7 runs with `verify_jwt = true`, derives the
+  caller's uid from the JWT (`auth.getUser()`), and processes only when
+  `players.user_id = uid` for the given uploader+room (else 403). `srcPath` prefix
+  check retained. (`lat`/`lng` remain by design — the uploader owns their own photo's
+  truth.) **NOTE:** v7 authenticates *who the caller is* but not *which photo row they
+  write* — see open finding **#6** below. So the edge function is **not** fully closed.
 - **`player_id`-spoof on every definer RPC** — **Resolved.** Stage 2 migration
   `anon_auth_stage2_ownership_guards` adds `and user_id = auth.uid()` to
   `touch_player`/`set_ready`/`set_name`/`set_pool`/`submit_guess`/`start_game`/
@@ -166,3 +168,22 @@ Context for the reviewer: pre-auth test rooms (players with null `user_id`) were
 wiped — they'd fail the new guards. Clients sign in anonymously on load via
 `ensureAuth()`; the uid persists in localStorage and is upgradeable to a real
 account later (history/accounts are the next slice).
+
+### Open finding (self-reported during round-2 self-review)
+- **[high] #6 `process-photo`: client-controlled `photoId` allows arbitrary
+  photo-row overwrite.** v7 verifies the caller owns `uploaderId`, but `photoId`
+  is still client-supplied (`index.html:675/681`) and the final write is a
+  service-role `upsert` keyed on the PK — so a PK conflict becomes an UPDATE of an
+  existing row. Photo ids are globally enumerable (`photos_select using (true)` +
+  `photos_public` has no room filter), so an attacker can sign in legitimately,
+  create their own room/player/upload, and call `process-photo` with `photoId` set
+  to *any* victim's photo id from *any* room — all v7 checks pass, and the upsert
+  rewrites the victim's `room_id`/`uploader_id`/`truth`/`display_url` (and clobbers
+  the display image, also `upsert:true`). Impact: integrity/availability (hijack or
+  destroy any photo in any room); **no truth leak** (function never returns truth).
+  Distinct from the original #3 (uploaderId spoof), which *is* fixed.
+  → **Proposed fix:** before the upsert, reject if the row exists and isn't already
+  the caller's (`select uploader_id, room_id from photos where id = photoId`; 403 on
+  mismatch). Stronger: generate `photoId` server-side and ignore the client value.
+  Defense-in-depth: scope `photos_public` to the caller's own rooms.
+  → **Status:** not yet patched; recorded here before claiming round-2 closed.
