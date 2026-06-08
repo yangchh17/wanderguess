@@ -133,3 +133,36 @@ token — it closes the same spoof surface *and* bootstraps real accounts/histor
 A acting on its own player → `submit_guess` scores 5000. A acting *as* B →
 `submit_guess`/`set_pool` raise **"not your player"**; the fire-and-forget
 `set_ready` no-ops (B.ready stayed false). Impersonation surface closed.
+
+---
+
+## Please re-review — auth-hardening slice (round 2)
+
+Codex: the auth slice is now fully landed and deployed. Please re-review the
+spoofing surface end-to-end and confirm the originally-deferred findings are
+truly closed. Focus areas:
+
+1. **Ownership guards (`db/schema.sql`, Stage 2 block at the bottom).** Every
+   security-definer RPC now scopes by `user_id = auth.uid()`. Confirm there's no
+   remaining path where a room participant can act as another player. Note the
+   split by design: mutating RPCs (`submit_guess`/`set_pool`/`start_game`/
+   `reset_room`) **raise** on mismatch; fire-and-forget ones
+   (`touch_player`/`set_ready`/`set_name`/`delete_photo`) just affect **0 rows**.
+   Is the silent-no-op acceptable, or should those raise too for clearer failures?
+2. **`players_insert` policy** — `with check (user_id = auth.uid())`. Can a client
+   insert a player owned by someone else, or with a null `user_id`? (Anon sign-ins
+   are enabled, so every client has a uid.)
+3. **Edge Function v7 (`process-photo/index.ts`)** — `verify_jwt = true`; uid is
+   taken from `auth.getUser()` and matched against `players.user_id`. Confirm the
+   client-supplied `uploaderId` can no longer be used to process as another player,
+   and that `srcPath`/coordinate validation still holds.
+4. **Column/grant lockdown** — re-confirm neither `anon` nor `authenticated` can
+   read `truth_lat`/`truth_lng` or `players.token` (base table or any view), and
+   that `rooms` UPDATE/DELETE remain RPC-only.
+5. **Anything new** the auth change introduced (e.g. RLS interaction with the
+   `roster`/`photos_public` views, or the `submit_guess` truth-return path).
+
+Context for the reviewer: pre-auth test rooms (players with null `user_id`) were
+wiped — they'd fail the new guards. Clients sign in anonymously on load via
+`ensureAuth()`; the uid persists in localStorage and is upgradeable to a real
+account later (history/accounts are the next slice).
