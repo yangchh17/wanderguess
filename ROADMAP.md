@@ -23,6 +23,12 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
 - End game: "See all locations" reveal map (photo + score per point, only photos
   you've guessed); host same-room rematch keeps uploaded photos (game_seq scopes
   guess-memory); scores reset per game.
+- Interface redesign: glassy "explorer at night" theme, Copy/Share invite,
+  segmented host setup (stepper + time pills), medal leaderboard — mobile-first.
+- Play UX closer to GeoGuessr: photo **zoom & pan** to inspect signs/landmarks
+  (pinch / wheel / double-click / drag, +/−/reset; still a non-saveable CSS
+  background — anti-cheat intact); animated **round-result card** (distance +
+  points count-up + 0–5000 score bar); **Enter/Space** to guess / advance.
 
 ## 🔒 Security (from Codex review — see REVIEW.md)
 **Fixed (no auth needed):**
@@ -57,6 +63,23 @@ overwrite closed (v8).
   privacy; no longer an overwrite vector after v8.
 - Rate limiting / abuse (room + upload creation) on the free tier.
 - Orphaned storage cleanup (display images from deleted photos/rooms).
+
+---
+
+## 🚧 In progress — Accounts, history & scoreboards
+Builds on the anonymous-auth foundation. **Guest play stays forever.**
+- Account = upgrade the existing anonymous identity to a permanent one
+  (`auth.updateUser({email,password})`), so `auth.uid()` — and all accrued
+  history — is preserved. Returning users `signInWithPassword`; sign-out drops
+  back to a fresh anonymous guest.
+- Durable history via a new `game_results` table (one row per finished game,
+  per user): total points, photos guessed, best single-photo points, closest km.
+  Written by a server-authoritative `record_game` RPC at finish (ownership-checked,
+  no truth leak). Survives same-room rematches (which delete live `guesses`).
+- `get_my_history()` (recent games) + `get_my_stats()` (lifetime aggregates) RPCs;
+  a Profile/Stats screen in the client.
+- Later: global all-time leaderboard (needs stable profile names), photo archive
+  ("select from your stack"), friends.
 
 ---
 
