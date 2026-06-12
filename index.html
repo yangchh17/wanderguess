@@ -71,10 +71,11 @@
 
     .field{display:flex;flex-direction:column;gap:8px}
     .field > label{font-size:.82rem;color:var(--mut);font-weight:500}
-    input,select{width:100%;padding:14px 15px;font:inherit;font-size:1rem;color:var(--ink);background:var(--inset);
+    input,select,textarea{width:100%;padding:14px 15px;font:inherit;font-size:1rem;color:var(--ink);background:var(--inset);
       border:1px solid var(--line);border-radius:var(--r);outline:none;transition:border-color .15s,box-shadow .15s,background .15s}
-    input::placeholder{color:#5a6182}
-    input:focus,select:focus{border-color:rgba(91,156,255,.7);box-shadow:0 0 0 3px rgba(91,156,255,.18);background:rgba(10,14,26,.7)}
+    textarea{resize:vertical;min-height:88px;line-height:1.5}
+    input::placeholder,textarea::placeholder{color:#5a6182}
+    input:focus,select:focus,textarea:focus{border-color:rgba(91,156,255,.7);box-shadow:0 0 0 3px rgba(91,156,255,.18);background:rgba(10,14,26,.7)}
     select{appearance:none;-webkit-appearance:none;padding-right:40px;cursor:pointer;
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa1c0' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
       background-repeat:no-repeat;background-position:right 14px center}
@@ -402,6 +403,17 @@
     </div>
 
     <div id="home-msg" class="msg"></div>
+
+    <button id="fb-toggle" class="linkbtn" type="button" style="margin:0 auto">💡 Suggest an improvement</button>
+    <div class="card" id="fb-card" style="display:none">
+      <span class="eyebrow">Your suggestion</span>
+      <textarea id="fb-text" maxlength="2000" placeholder="What would make the game better?"></textarea>
+      <div class="code-actions">
+        <button id="fb-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+        <button id="fb-send" class="btn btn-primary btn-sm" type="button">Send</button>
+      </div>
+      <div id="fb-msg" class="msg"></div>
+    </div>
   </section>
 
   <!-- ───────── Lobby ───────── -->
@@ -1427,6 +1439,28 @@ $('btn-acct-signout').addEventListener('click', async () => {
   await sb.auth.signInAnonymously();        // drop back to a fresh guest so play still works
   localStorage.removeItem(LS); session = null;
   acctMsg('Signed out.'); await refreshAccount(); refreshHome();
+});
+
+// ── Feedback (write-only suggestion box; server rate-limits per uid) ──
+$('fb-toggle').addEventListener('click', () => {
+  const c = $('fb-card'); const open = c.style.display === 'none';
+  c.style.display = open ? '' : 'none';
+  if (open) $('fb-text').focus();
+});
+$('fb-cancel').addEventListener('click', () => { $('fb-card').style.display = 'none'; $('fb-msg').textContent = ''; });
+$('fb-send').addEventListener('click', async () => {
+  const body = $('fb-text').value.trim(), m = $('fb-msg');
+  if (body.length < 3) { m.className = 'msg err'; m.textContent = 'Tell us a bit more first.'; return; }
+  $('fb-send').disabled = true;
+  try {
+    await ensureAuth();
+    const { error } = await sb.rpc('submit_feedback', { p_body: body });
+    if (error) throw error;
+    $('fb-text').value = '';
+    m.className = 'msg ok'; m.textContent = 'Thanks — suggestion received ✓';
+    setTimeout(() => { $('fb-card').style.display = 'none'; m.textContent = ''; }, 1600);
+  } catch (e) { m.className = 'msg err'; m.textContent = 'Error: ' + (e.message || e); }
+  finally { $('fb-send').disabled = false; }
 });
 
 async function openProfile(){

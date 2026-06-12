@@ -474,3 +474,37 @@ language sql security definer set search_path = public as $$
 $$;
 revoke all on function public.get_my_stats() from public;
 grant execute on function public.get_my_stats() to anon, authenticated;
+
+
+-- ============================================================
+--  PLAYER FEEDBACK (write-only suggestion box)
+--  Clients can only INSERT, via the rate-limited RPC below — the table
+--  itself is not readable or writable by anon/authenticated, so players
+--  can never see each other's submissions. Read it in the Supabase
+--  dashboard (service role bypasses RLS).
+-- ============================================================
+create table if not exists public.feedback (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null,                       -- auth.uid() of the sender (guest or account)
+  body       text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists feedback_user_time on public.feedback(user_id, created_at);
+alter table public.feedback enable row level security;   -- RLS on, no policies = no direct access
+revoke all on public.feedback from anon, authenticated;
+
+create or replace function public.submit_feedback(p_body text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_body text := trim(coalesce(p_body, ''));
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if length(v_body) < 3    then raise exception 'feedback is empty'; end if;
+  if length(v_body) > 2000 then raise exception 'feedback too long (2000 chars max)'; end if;
+  if (select count(*) from feedback
+      where user_id = auth.uid() and created_at > now() - interval '1 hour') >= 5 then
+    raise exception 'too many submissions — try again in a bit';
+  end if;
+  insert into feedback(user_id, body) values (auth.uid(), v_body);
+end; $$;
+revoke all on function public.submit_feedback(text) from public;
+grant execute on function public.submit_feedback(text) to anon, authenticated;
