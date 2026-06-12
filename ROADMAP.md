@@ -113,14 +113,30 @@ touches the formula.
   display images under `display/lib/{uid}/`.
 - `process-photo` learns a library target — same EXIF strip + truth extract,
   JWT-ownership-checked; originals still deleted after processing.
-- Room uploads auto-save to the uploader's library. "Add from library"
-  copies display object + truth into the room's photos via an ownership-
-  checked RPC (storage COPY, not shared reference — room deletes stay safe).
-- Library tab: grid + tags + delete + upload outside any room — iPhone
-  users (Safari AND Chrome: all iOS browsers are WebKit, same GPS
-  stripping) do the Files trick once, keep GPS forever.
-- Cap ~10 photos/user (free-tier storage). Guest libraries accrue under
+- **Library is the primary upload destination — not the lobby.** Players
+  build their library on their own time before joining a game. No file
+  picker in the lobby: it shows only a grid of your library photos to
+  select from. This is the key UX win for iOS — users can do the
+  Files trick without anyone waiting on them.
+  (Note: all iOS browsers — Safari and Chrome alike — are WebKit and share
+  the same GPS stripping behaviour; the fix applies to all of them.)
+- Edge case: player joins a room with an empty library → lobby shows a
+  clear "add photos to your library first" prompt with a link to the
+  Library tab, not a dead end.
+- Cap ~15 photos/user (free-tier storage). Guest libraries accrue under
   the anon uid and carry over on account upgrade (same as history).
+- Max photos per player per game: 5 (matches library cap sanity; host
+  stepper now capped at 5 in UI).
+- Lobby keeps an "Add photo" button — uploads into the library AND selects
+  it for the current room in one step. Same DB design, no second code path.
+  The Library tab is for deliberate pre-game building; the lobby button
+  keeps the spontaneous party flow alive.
+- ⚠️ **NOT YET TESTED end-to-end on a real device.** The GPS extraction
+  logic (Files path → HEIC with intact EXIF → exifr.js reads lat/lng →
+  uploaded) is in the code and the `gps-check.html` diagnostic tests the
+  client-side EXIF read. A full flow test on a real iPhone (Files trick →
+  photo in library → added to room → truth stored correctly → revealed
+  after guess) is required before relying on it.
 
 ### Stage 2 — Scoped scoring (tags + reverse geocode)
 - `process-photo` reverse-geocodes truth → city/region/country stored on
@@ -150,8 +166,18 @@ touches the formula.
 ---
 
 ## 🔄 Parallel track — Sync mode (live "race the same photo on a clock")
-Default stays async; sync is opt-in. The marquee competitive mode.
-Orthogonal to the staged plan above — can land between any stages.
+Default stays async; sync is opt-in. The marquee competitive feature.
+Target: land between Stage 1 and Stage 2 — after the library flow is
+solid but before scoped scoring adds more complexity.
+
+**What sync needs (not yet built):**
+- `rooms.mode` ('async'|'sync'), `photo_order uuid[]`, `round_idx`,
+  `round_started_at`, `round_ends_at` on the room (or a `rounds` table).
+- `advance_round(room, from_idx)` RPC, idempotent on `from_idx`.
+- Client countdown from `round_ends_at`; all players see the same photo
+  at the same time; reveal to everyone on round end.
+- 1s watchdog polling triggers `advance_round` when due.
+- Later: Supabase Realtime for instant transitions instead of polling.
 
 **S1 — Server round engine**
 - Room mode: `rooms.mode text default 'async'` ('async' | 'sync').

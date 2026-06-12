@@ -377,7 +377,7 @@
         <label>Photos each player adds</label>
         <div class="stepper">
           <button type="button" class="step-btn" id="ppp-dec" aria-label="Fewer photos">–</button>
-          <input id="ppp" type="number" min="1" max="10" value="3" inputmode="numeric" />
+          <input id="ppp" type="number" min="1" max="5" value="3" inputmode="numeric" />
           <button type="button" class="step-btn" id="ppp-inc" aria-label="More photos">+</button>
         </div>
       </div>
@@ -567,7 +567,7 @@
       <h3>The game</h3>
       <div class="help-steps">
         <div class="help-step"><div class="sn">1</div><div class="st"><b>Host creates a room</b> and shares the code — friends join by typing it on the home screen.</div></div>
-        <div class="help-step"><div class="sn">2</div><div class="st"><b>Everyone uploads photos</b> from a trip or somewhere interesting. The app reads the location automatically (see the iOS tip below if it doesn't).</div></div>
+        <div class="help-step"><div class="sn">2</div><div class="st"><b>Everyone uploads photos</b> from a trip or somewhere interesting. The app reads the GPS location automatically — on iPhone, use the manual pin or upload from a desktop browser (see tip below).</div></div>
         <div class="help-step"><div class="sn">3</div><div class="st">Select your photos, tap <b>Add to pool</b>, then <b>I'm ready</b>. The host starts the game once everyone is ready.</div></div>
         <div class="help-step"><div class="sn">4</div><div class="st"><b>Guess where each photo was taken</b> by dropping a pin on the map. Tap the map to expand it first if it's too small.</div></div>
         <div class="help-step"><div class="sn">5</div><div class="st">Score up to <b>5,000 pts per photo</b> — the closer your pin, the higher the score. Check the leaderboard and reveal map when you're done.</div></div>
@@ -586,13 +586,12 @@
 
     <div class="help-tip">
       <div class="tip-head">📍 iOS tip — getting GPS from your photos</div>
-      iOS Safari strips GPS coordinates from photos when you pick them from your Photo Library.
-      You have two options:
+      All iOS browsers (Safari, Chrome, Firefox) strip GPS coordinates when you pick photos — this is a WebKit restriction with no workaround on iPhone.
       <div class="tip-opt">
-        <b>Option A — automatic location:</b> In the Photos app, open the photo → tap <code>Share</code> → <code>Save to Files</code> → <code>On My iPhone</code>. Then when adding photos here, tap <b>Choose File</b> and pick it from Files. GPS will be read automatically.
+        <b>Manual pin (works on any device):</b> Pick your photo normally. When no GPS is found, tap <b>"Set location"</b> and drop a pin on the map where the photo was taken.
       </div>
       <div class="tip-opt">
-        <b>Option B — manual pin:</b> Pick normally. When no GPS is found, tap <b>"Set location"</b> and drop a pin on the map where the photo was taken.
+        <b>Best for automatic GPS:</b> Upload your photos from a Mac or PC browser — desktop browsers preserve GPS automatically. Once the personal library feature ships, you'll be able to build your library on desktop and play on your phone without re-uploading.
       </div>
     </div>
 
@@ -1531,7 +1530,7 @@ ensureAuth().then(() => { refreshAccount(); if (session && session.roomId) enter
 
   // ── Photo-count steppers (write to #ppp; the game module reads its .value) ──
   const ppp = $('ppp');
-  const stepPPP = d => { let v = (parseInt(ppp.value, 10) || 3) + d; ppp.value = Math.max(1, Math.min(10, v)); };
+  const stepPPP = d => { let v = (parseInt(ppp.value, 10) || 3) + d; ppp.value = Math.max(1, Math.min(5, v)); };
   $('ppp-dec') && $('ppp-dec').addEventListener('click', () => stepPPP(-1));
   $('ppp-inc') && $('ppp-inc').addEventListener('click', () => stepPPP(1));
 
