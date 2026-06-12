@@ -71,10 +71,11 @@
 
     .field{display:flex;flex-direction:column;gap:8px}
     .field > label{font-size:.82rem;color:var(--mut);font-weight:500}
-    input,select{width:100%;padding:14px 15px;font:inherit;font-size:1rem;color:var(--ink);background:var(--inset);
+    input,select,textarea{width:100%;padding:14px 15px;font:inherit;font-size:1rem;color:var(--ink);background:var(--inset);
       border:1px solid var(--line);border-radius:var(--r);outline:none;transition:border-color .15s,box-shadow .15s,background .15s}
-    input::placeholder{color:#5a6182}
-    input:focus,select:focus{border-color:rgba(91,156,255,.7);box-shadow:0 0 0 3px rgba(91,156,255,.18);background:rgba(10,14,26,.7)}
+    textarea{resize:vertical;min-height:88px;line-height:1.5}
+    input::placeholder,textarea::placeholder{color:#5a6182}
+    input:focus,select:focus,textarea:focus{border-color:rgba(91,156,255,.7);box-shadow:0 0 0 3px rgba(91,156,255,.18);background:rgba(10,14,26,.7)}
     select{appearance:none;-webkit-appearance:none;padding-right:40px;cursor:pointer;
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa1c0' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
       background-repeat:no-repeat;background-position:right 14px center}
@@ -283,6 +284,36 @@
     .hrow .hmeta{flex:1;min-width:0;color:var(--mut);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .hrow .hpts{color:var(--good);font-weight:700;font-family:'Space Grotesk',sans-serif;flex:0 0 auto}
     @media (max-width:380px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
+
+    /* ── Help / How-to-play overlay ── */
+    .help-btn{position:absolute;right:0;width:34px;height:34px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--mut);border-radius:10px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1rem;cursor:pointer;display:grid;place-items:center;-webkit-tap-highlight-color:transparent;transition:.15s}
+    .help-btn:hover{background:rgba(255,255,255,.1);color:var(--ink)}
+    .help-overlay{position:fixed;inset:0;z-index:1400;background:rgba(5,8,15,.82);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;padding:max(18px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .help-overlay.on{display:flex;animation:fadeIn .25s ease}
+    .help-panel{width:100%;max-width:480px;background:var(--glass-solid);border:1px solid var(--line-2);border-radius:var(--r-xl);padding:22px 20px;display:flex;flex-direction:column;gap:18px;box-shadow:var(--shadow-lg);margin:auto}
+    .help-panel .help-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .help-panel .help-head h2{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;font-weight:700;background:var(--grad-text);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .help-panel .help-head button{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--mut);border-radius:10px;padding:7px 13px;font:inherit;font-size:.82rem;font-weight:600;cursor:pointer;white-space:nowrap}
+    .help-panel .help-head button:hover{background:rgba(255,255,255,.1);color:var(--ink)}
+    .help-section h3{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:.82rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin-bottom:10px}
+    .help-steps{display:flex;flex-direction:column;gap:9px}
+    .help-step{display:flex;gap:12px;align-items:flex-start}
+    .help-step .sn{flex:0 0 auto;width:24px;height:24px;border-radius:8px;background:var(--grad);color:#04182e;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:.78rem;display:grid;place-items:center}
+    .help-step .st{font-size:.88rem;color:var(--mut);line-height:1.55;padding-top:3px}
+    .help-step .st b{color:var(--ink)}
+    .help-bullets{display:flex;flex-direction:column;gap:8px;padding-left:2px}
+    .help-bullet{display:flex;gap:10px;align-items:flex-start;font-size:.88rem;color:var(--mut);line-height:1.55}
+    .help-bullet::before{content:'›';color:var(--primary-2);font-weight:700;font-size:1rem;flex:0 0 auto;margin-top:1px}
+    .help-bullet b{color:var(--ink)}
+    .help-tip{background:rgba(255,192,107,.07);border:1px solid rgba(255,192,107,.28);border-radius:var(--r);padding:14px 15px;font-size:.86rem;color:var(--mut);line-height:1.6}
+    .help-tip .tip-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-weight:600;color:var(--warn)}
+    .help-tip .tip-opt{margin-top:10px}
+    .help-tip .tip-opt b{color:var(--ink)}
+    .help-tip code{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:1px 6px;font:inherit;font-size:.82rem;color:var(--ink)}
+    /* toast */
+    .toast{position:fixed;bottom:max(28px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(12px);background:rgba(30,35,55,.97);border:1px solid var(--line-2);color:var(--ink);padding:10px 18px;border-radius:24px;font-size:.88rem;font-weight:500;white-space:nowrap;opacity:0;transition:opacity .2s,transform .2s;z-index:1500;pointer-events:none}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+    .toast.good{border-color:rgba(84,230,160,.4);color:var(--good)}
   </style>
 </head>
 <body>
@@ -299,6 +330,7 @@
       </svg>
     </span>
     <span class="brand-name">Wanderguess</span>
+    <button id="btn-help" class="help-btn" type="button" aria-label="How to play">?</button>
   </header>
 
   <!-- ───────── Home ───────── -->
@@ -371,6 +403,17 @@
     </div>
 
     <div id="home-msg" class="msg"></div>
+
+    <button id="fb-toggle" class="linkbtn" type="button" style="margin:0 auto">💡 Suggest an improvement</button>
+    <div class="card" id="fb-card" style="display:none">
+      <span class="eyebrow">Your suggestion</span>
+      <textarea id="fb-text" maxlength="2000" placeholder="What would make the game better?"></textarea>
+      <div class="code-actions">
+        <button id="fb-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+        <button id="fb-send" class="btn btn-primary btn-sm" type="button">Send</button>
+      </div>
+      <div id="fb-msg" class="msg"></div>
+    </div>
   </section>
 
   <!-- ───────── Lobby ───────── -->
@@ -508,6 +551,52 @@
   <div class="pinmap-foot">
     <button id="pinmap-cancel" class="btn btn-ghost">Cancel</button>
     <button id="pinmap-use" class="btn btn-primary" disabled>Use this location</button>
+  </div>
+</div>
+
+<!-- ───────── How-to-play overlay ───────── -->
+<div id="help-overlay" class="help-overlay" role="dialog" aria-modal="true" aria-labelledby="help-title">
+  <div class="help-panel">
+
+    <div class="help-head">
+      <h2 id="help-title">How to play</h2>
+      <button id="help-close-btn" type="button">Close ×</button>
+    </div>
+
+    <div class="help-section">
+      <h3>The game</h3>
+      <div class="help-steps">
+        <div class="help-step"><div class="sn">1</div><div class="st"><b>Host creates a room</b> and shares the code — friends join by typing it on the home screen.</div></div>
+        <div class="help-step"><div class="sn">2</div><div class="st"><b>Everyone uploads photos</b> from a trip or somewhere interesting. The app reads the location automatically (see the iOS tip below if it doesn't).</div></div>
+        <div class="help-step"><div class="sn">3</div><div class="st">Select your photos, tap <b>Add to pool</b>, then <b>I'm ready</b>. The host starts the game once everyone is ready.</div></div>
+        <div class="help-step"><div class="sn">4</div><div class="st"><b>Guess where each photo was taken</b> by dropping a pin on the map. Tap the map to expand it first if it's too small.</div></div>
+        <div class="help-step"><div class="sn">5</div><div class="st">Score up to <b>5,000 pts per photo</b> — the closer your pin, the higher the score. Check the leaderboard and reveal map when you're done.</div></div>
+      </div>
+    </div>
+
+    <div class="help-section">
+      <h3>Guessing tips</h3>
+      <div class="help-bullets">
+        <div class="help-bullet"><span><b>Zoom & pan the photo</b> to spot signs, landmarks, or clues — pinch on mobile, scroll wheel on desktop, double-tap to zoom in/out.</span></div>
+        <div class="help-bullet"><span><b>Tap the mini-map</b> to expand it before dropping your pin. Tap × to shrink it back.</span></div>
+        <div class="help-bullet"><span>On desktop, press <b>Enter or Space</b> to confirm a guess or move to the next photo.</span></div>
+        <div class="help-bullet"><span>You have a time limit per photo (set by the host). If time runs out without a pin, you score 0 for that photo.</span></div>
+      </div>
+    </div>
+
+    <div class="help-tip">
+      <div class="tip-head">📍 iOS tip — getting GPS from your photos</div>
+      iOS Safari strips GPS coordinates from photos when you pick them from your Photo Library.
+      You have two options:
+      <div class="tip-opt">
+        <b>Option A — automatic location:</b> In the Photos app, open the photo → tap <code>Share</code> → <code>Save to Files</code> → <code>On My iPhone</code>. Then when adding photos here, tap <b>Choose File</b> and pick it from Files. GPS will be read automatically.
+      </div>
+      <div class="tip-opt">
+        <b>Option B — manual pin:</b> Pick normally. When no GPS is found, tap <b>"Set location"</b> and drop a pin on the map where the photo was taken.
+      </div>
+    </div>
+
+    <button id="help-got-it" class="btn btn-primary" type="button">Got it</button>
   </div>
 </div>
 
@@ -832,11 +921,11 @@ let pinMap = null, pinMarker = null, pinLatLng = null, pinResolve = null;
 
 function ensurePinMap(){
   if (pinMap) return;
-  pinMap = L.map('pinmap-map', { center: [20, 0], zoom: 2 });
+  pinMap = L.map('pinmap-map', { center: [20, 0], zoom: 2, worldCopyJump: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(pinMap);
   pinMap.on('click', (e) => {
-    pinLatLng = e.latlng;
+    pinLatLng = L.latLng(e.latlng).wrap();   // canonical lng even on a wrapped world copy
     const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
     if (pinMarker) pinMarker.setLatLng(e.latlng);
     else pinMarker = L.marker(e.latlng, { icon }).addTo(pinMap);
@@ -967,9 +1056,20 @@ async function uploadOne(file){
 const gstate = { queue: [], idx: 0, guess: null, phase: 'idle', score: 0 };
 let gmap = null, gGuessMarker = null, gTruthMarker = null, gLine = null;
 
+// Clicks on a panned-past-the-antimeridian world copy report longitudes outside
+// [-180,180] (e.g. 250°); wrap them so stored guesses are canonical.
+const wrapLL = ll => { const w = L.latLng(ll).wrap(); return { lat: w.lat, lng: w.lng }; };
+// Re-express b's longitude within 180° of a's so a drawn a–b line takes the short
+// path across the date line instead of spanning the whole map.
+function nearLng(a, b){
+  let lng = b.lng;
+  if (lng - a.lng > 180) lng -= 360; else if (a.lng - lng > 180) lng += 360;
+  return { lat: b.lat, lng };
+}
+
 function ensureGuessMap(){
   if (gmap) return;
-  gmap = L.map('g-map', { center: [20, 0], zoom: 2 });
+  gmap = L.map('g-map', { center: [20, 0], zoom: 2, worldCopyJump: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(gmap);
   new ResizeObserver(() => gmap.invalidateSize()).observe(document.getElementById('g-map'));
@@ -981,7 +1081,7 @@ function ensureGuessMap(){
     if (gstate.phase !== 'guessing') return;
     // Touch: first tap expands the small map; next tap drops the pin.
     if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
-    gstate.guess = { lat: e.latlng.lat, lng: e.latlng.lng };
+    gstate.guess = wrapLL(e.latlng);
     const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
     if (gGuessMarker) gGuessMarker.setLatLng(e.latlng);
     else gGuessMarker = L.marker(e.latlng, { icon }).addTo(gmap);
@@ -1035,7 +1135,7 @@ const pinIcon = cls => L.divIcon({ className: '', html: `<div class="${cls}"></d
 let rmap = null, rLayers = [];
 function ensureResultsMap(){
   if (rmap) return;
-  rmap = L.map('r-map', { center: [20, 0], zoom: 2 });
+  rmap = L.map('r-map', { center: [20, 0], zoom: 2, worldCopyJump: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(rmap);
   new ResizeObserver(() => rmap.invalidateSize()).observe(document.getElementById('r-map'));
 }
@@ -1048,13 +1148,14 @@ function addResult(r){ const a = getResultsCache(); a.push(r); localStorage.setI
 async function openResults(){
   $('s-results').classList.add('on');
   ensureResultsMap();
-  setTimeout(() => rmap.invalidateSize(), 60);
   rLayers.forEach(l => rmap.removeLayer(l)); rLayers = [];
   const rows = getResultsCache();
-  if (!rows.length) { rmap.setView([20, 0], 2); return; }
+  if (!rows.length) { setTimeout(() => { rmap.invalidateSize(); rmap.setView([20, 0], 2); }, 60); return; }
   const bounds = [];
   for (const r of rows){
-    const truth = [r.truth_lat, r.truth_lng], guess = [r.guess_lat, r.guess_lng];
+    const truth = [r.truth_lat, r.truth_lng];
+    const gN = nearLng({ lat: r.truth_lat, lng: r.truth_lng }, { lat: r.guess_lat, lng: r.guess_lng });
+    const guess = [gN.lat, gN.lng];
     const popup = `<div style="text-align:center">` +
       `<img src="${r.display_url}" style="width:150px;height:auto;border-radius:6px;display:block;margin:0 auto 5px"/>` +
       `<b>${r.points.toLocaleString()} pts</b> · ${formatKm(r.distance_km)} off</div>`;
@@ -1063,7 +1164,8 @@ async function openResults(){
     const ln = L.polyline([truth, guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .6 }).addTo(rmap);
     rLayers.push(t, g, ln); bounds.push(truth, guess);
   }
-  rmap.fitBounds(L.latLngBounds(bounds).pad(.2));
+  const b = L.latLngBounds(bounds).pad(.2);
+  setTimeout(() => { rmap.invalidateSize(); rmap.fitBounds(b); }, 60);
 }
 
 async function enterPlay(){
@@ -1135,10 +1237,12 @@ async function confirmGuess2(){
   $('g-score').textContent = gstate.score.toLocaleString();
 
   setGExpanded(true);
+  const gNear = nearLng(truth, gstate.guess);   // short path across the date line
+  if (gGuessMarker) gGuessMarker.setLatLng(gNear);
   const icon = L.divIcon({ className: '', html: '<div class="truthpin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
   gTruthMarker = L.marker(truth, { icon }).bindTooltip('Actual location').addTo(gmap);
-  gLine = L.polyline([truth, gstate.guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
-  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gstate.guess]).pad(.25)); }, 280);
+  gLine = L.polyline([truth, gNear], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
+  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gNear]).pad(.25)); }, 280);
 
   showReveal(distanceKm, res.points);
   $('g-confirm').style.display = 'none';
@@ -1337,6 +1441,28 @@ $('btn-acct-signout').addEventListener('click', async () => {
   acctMsg('Signed out.'); await refreshAccount(); refreshHome();
 });
 
+// ── Feedback (write-only suggestion box; server rate-limits per uid) ──
+$('fb-toggle').addEventListener('click', () => {
+  const c = $('fb-card'); const open = c.style.display === 'none';
+  c.style.display = open ? '' : 'none';
+  if (open) $('fb-text').focus();
+});
+$('fb-cancel').addEventListener('click', () => { $('fb-card').style.display = 'none'; $('fb-msg').textContent = ''; });
+$('fb-send').addEventListener('click', async () => {
+  const body = $('fb-text').value.trim(), m = $('fb-msg');
+  if (body.length < 3) { m.className = 'msg err'; m.textContent = 'Tell us a bit more first.'; return; }
+  $('fb-send').disabled = true;
+  try {
+    await ensureAuth();
+    const { error } = await sb.rpc('submit_feedback', { p_body: body });
+    if (error) throw error;
+    $('fb-text').value = '';
+    m.className = 'msg ok'; m.textContent = 'Thanks — suggestion received ✓';
+    setTimeout(() => { $('fb-card').style.display = 'none'; m.textContent = ''; }, 1600);
+  } catch (e) { m.className = 'msg err'; m.textContent = 'Error: ' + (e.message || e); }
+  finally { $('fb-send').disabled = false; }
+});
+
 async function openProfile(){
   show('s-profile');
   $('stats-grid').innerHTML = '<span class="mut">Loading…</span>';
@@ -1424,6 +1550,22 @@ ensureAuth().then(() => { refreshAccount(); if (session && session.roomId) enter
       .observe(el, { childList: true, characterData: true, subtree: true });
   };
   bump('g-score');
+
+  // ── Help / how-to-play overlay ──
+  (function(){
+    const overlay = $('help-overlay');
+    const openHelp  = () => overlay.classList.add('on');
+    const closeHelp = () => overlay.classList.remove('on');
+    $('btn-help').addEventListener('click', openHelp);
+    $('help-close-btn').addEventListener('click', closeHelp);
+    $('help-got-it').addEventListener('click', closeHelp);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeHelp(); });
+    // Auto-show once for first-time visitors
+    if (!localStorage.getItem('wg.seen-help')) {
+      openHelp();
+      localStorage.setItem('wg.seen-help', '1');
+    }
+  })();
 })();
 </script>
 </body>

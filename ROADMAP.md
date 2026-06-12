@@ -90,10 +90,68 @@ overwrite closed (v8).
 
 ---
 
-## 🎯 Next big features (pick one)
+## 🎯 Committed plan (decided 2026-06-12)
+Committed: Stages 0–2 (UI shell → personal library → scoped scoring). Each
+stage ships on its own. Stage 3 (public pool) is NOT committed — re-evaluate
+after Stage 2 ships and we see how the app feels; the design below is kept so
+Stages 0–2 stay pool-compatible. Principle: tags are browse/filter labels
+only; scoring scope is server-derived (reverse geocode) — player input never
+touches the formula.
 
-### A. Sync mode (live "race the same photo on a clock")
+### Stage 0 — UI shell: bottom tab bar
+- Tabs: **Play · Library · Profile** (Explore appears in Stage 3).
+- Play = home (create/join/rejoin) + lobby once in a room; in-game badge.
+- Profile absorbs the account card, stats/history, suggestion box.
+- Full-screen overlays (play/results/pin/help) unchanged; they render above.
+- Recommended: split index.html's module script into js/*.js ES modules
+  (no build step needed) — 1,500+ lines is merge-conflict bait with two
+  active sessions.
+
+### Stage 1 — Personal library (fixes iOS for good)
+- `library_photos`: owned by auth.uid(); truth columns locked exactly like
+  `photos` (truth stays RPC-only everywhere); safe view without truth;
+  display images under `display/lib/{uid}/`.
+- `process-photo` learns a library target — same EXIF strip + truth extract,
+  JWT-ownership-checked; originals still deleted after processing.
+- Room uploads auto-save to the uploader's library. "Add from library"
+  copies display object + truth into the room's photos via an ownership-
+  checked RPC (storage COPY, not shared reference — room deletes stay safe).
+- Library tab: grid + tags + delete + upload outside any room — iPhone
+  users (Safari AND Chrome: all iOS browsers are WebKit, same GPS
+  stripping) do the Files trick once, keep GPS forever.
+- Cap ~10 photos/user (free-tier storage). Guest libraries accrue under
+  the anon uid and carry over on account upgrade (same as history).
+
+### Stage 2 — Scoped scoring (tags + reverse geocode)
+- `process-photo` reverse-geocodes truth → city/region/country stored on
+  the photo (locked columns; never rendered during guessing).
+- Same formula, parameterized map size (already a param in shared/geo.js):
+  world 14,917 km · country ~2,000 · region ~400 · city ~40. Fixed
+  constants first; per-country bounding boxes later if wanted.
+- `rooms.scope` ('world'|'country'|'region'|'city') + `scope_km`; host
+  picks at create; `submit_guess` reads scope_km (server stays authority).
+- Tags shown ONLY in library/pool browsing and as the game's scope label —
+  equal info for everyone, no per-photo leak during play.
+
+### Stage 3 — Public pool (Explore tab) — DEFERRED: decide after Stage 2
+- `library_photos.is_public` opt-in with consent warning (strangers see
+  the photo + its exact location after guessing). Publishing requires a
+  real (non-anon) account → ban handle + abuse friction.
+- Ratings: photo quality + "location accurate?" as separate signals.
+  Auto-retire needs a minimum vote count (Wilson-style) first; soft-delete
+  / quarantine, never hard-delete; optional retire-after-N-plays
+  (anti-memorization keeps the pool fresh).
+- Reports auto-hide at a threshold; owner reviews in the dashboard.
+- Explore tab: browse by tag, solo run (5 random from a filter), daily
+  challenge (seeded daily selection + global leaderboard — needs the
+  stable profile names from accounts).
+- Later: friends, friend leaderboards, invites.
+
+---
+
+## 🔄 Parallel track — Sync mode (live "race the same photo on a clock")
 Default stays async; sync is opt-in. The marquee competitive mode.
+Orthogonal to the staged plan above — can land between any stages.
 
 **S1 — Server round engine**
 - Room mode: `rooms.mode text default 'async'` ('async' | 'sync').
@@ -122,16 +180,9 @@ Default stays async; sync is opt-in. The marquee competitive mode.
 - Supabase Realtime (postgres_changes on the room) for instant transitions
   instead of 1s polling; reconnection handling; late-join = spectate till next game.
 
-### B. Accounts, history & photo archive (retention layer)
-Build when there are returning players. Keep **guest play forever**.
-- Supabase Auth (email magic-link / Google / Apple); `players.user_id` links a
-  guest identity to an account.
-- **Game history & lifetime stats** (query guesses/rooms by user_id).
-- **Photo archive ("select from your stack")**: a user-owned library of
-  previously uploaded (already EXIF-stripped, truth-bearing) photos, reusable in
-  any new room without re-uploading. *(This is the user's "save to account" ask —
-  download-to-device stays disabled for anti-cheat; archive lives server-side.)*
-- Friends + friend leaderboards + invites (after the above).
+*(The former "B. Accounts, history & photo archive" item: accounts + history
+shipped — see above; the photo archive is now Stage 1 of the committed plan;
+friends/leaderboards moved into Stage 3's "later" line.)*
 
 ---
 
