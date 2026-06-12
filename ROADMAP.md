@@ -113,14 +113,24 @@ touches the formula.
   display images under `display/lib/{uid}/`.
 - `process-photo` learns a library target — same EXIF strip + truth extract,
   JWT-ownership-checked; originals still deleted after processing.
-- Room uploads auto-save to the uploader's library. "Add from library"
-  copies display object + truth into the room's photos via an ownership-
-  checked RPC (storage COPY, not shared reference — room deletes stay safe).
-- Library tab: grid + tags + delete + upload outside any room — iPhone
-  users (Safari AND Chrome: all iOS browsers are WebKit, same GPS
-  stripping) do the Files trick once, keep GPS forever.
+- **Library is the primary upload destination — not the lobby.** Players
+  build their library on their own time before joining a game. No file
+  picker in the lobby: it shows only a grid of your library photos to
+  select from. This is the key UX win for iOS — users can do the
+  Files trick without anyone waiting on them.
+  (Note: all iOS browsers — Safari and Chrome alike — are WebKit and share
+  the same GPS stripping behaviour; the fix applies to all of them.)
+- Edge case: player joins a room with an empty library → lobby shows a
+  clear "add photos to your library first" prompt with a link to the
+  Library tab, not a dead end.
 - Cap ~10 photos/user (free-tier storage). Guest libraries accrue under
   the anon uid and carry over on account upgrade (same as history).
+- ⚠️ **NOT YET TESTED end-to-end on a real device.** The GPS extraction
+  logic (Files path → HEIC with intact EXIF → exifr.js reads lat/lng →
+  uploaded) is in the code and the `gps-check.html` diagnostic tests the
+  client-side EXIF read. A full flow test on a real iPhone (Files trick →
+  photo in library → added to room → truth stored correctly → revealed
+  after guess) is required before relying on it.
 
 ### Stage 2 — Scoped scoring (tags + reverse geocode)
 - `process-photo` reverse-geocodes truth → city/region/country stored on
