@@ -1136,10 +1136,9 @@ function addResult(r){ const a = getResultsCache(); a.push(r); localStorage.setI
 async function openResults(){
   $('s-results').classList.add('on');
   ensureResultsMap();
-  setTimeout(() => rmap.invalidateSize(), 60);
   rLayers.forEach(l => rmap.removeLayer(l)); rLayers = [];
   const rows = getResultsCache();
-  if (!rows.length) { rmap.setView([20, 0], 2); return; }
+  if (!rows.length) { setTimeout(() => { rmap.invalidateSize(); rmap.setView([20, 0], 2); }, 60); return; }
   const bounds = [];
   for (const r of rows){
     const truth = [r.truth_lat, r.truth_lng];
@@ -1153,7 +1152,8 @@ async function openResults(){
     const ln = L.polyline([truth, guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .6 }).addTo(rmap);
     rLayers.push(t, g, ln); bounds.push(truth, guess);
   }
-  rmap.fitBounds(L.latLngBounds(bounds).pad(.2));
+  const b = L.latLngBounds(bounds).pad(.2);
+  setTimeout(() => { rmap.invalidateSize(); rmap.fitBounds(b); }, 60);
 }
 
 async function enterPlay(){
