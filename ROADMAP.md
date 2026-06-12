@@ -90,10 +90,13 @@ overwrite closed (v8).
 
 ---
 
-## 🎯 Committed plan — pool-ready app (decided 2026-06-12)
-Order: UI shell → personal library → scoped scoring → public pool. Each stage
-ships on its own. Principle: tags are browse/filter labels only; scoring scope
-is server-derived (reverse geocode) — player input never touches the formula.
+## 🎯 Committed plan (decided 2026-06-12)
+Committed: Stages 0–2 (UI shell → personal library → scoped scoring). Each
+stage ships on its own. Stage 3 (public pool) is NOT committed — re-evaluate
+after Stage 2 ships and we see how the app feels; the design below is kept so
+Stages 0–2 stay pool-compatible. Principle: tags are browse/filter labels
+only; scoring scope is server-derived (reverse geocode) — player input never
+touches the formula.
 
 ### Stage 0 — UI shell: bottom tab bar
 - Tabs: **Play · Library · Profile** (Explore appears in Stage 3).
@@ -116,7 +119,7 @@ is server-derived (reverse geocode) — player input never touches the formula.
 - Library tab: grid + tags + delete + upload outside any room — iPhone
   users (Safari AND Chrome: all iOS browsers are WebKit, same GPS
   stripping) do the Files trick once, keep GPS forever.
-- Cap ~100 photos/user (free-tier storage). Guest libraries accrue under
+- Cap ~10 photos/user (free-tier storage). Guest libraries accrue under
   the anon uid and carry over on account upgrade (same as history).
 
 ### Stage 2 — Scoped scoring (tags + reverse geocode)
@@ -130,7 +133,7 @@ is server-derived (reverse geocode) — player input never touches the formula.
 - Tags shown ONLY in library/pool browsing and as the game's scope label —
   equal info for everyone, no per-photo leak during play.
 
-### Stage 3 — Public pool (Explore tab)
+### Stage 3 — Public pool (Explore tab) — DEFERRED: decide after Stage 2
 - `library_photos.is_public` opt-in with consent warning (strangers see
   the photo + its exact location after guessing). Publishing requires a
   real (non-anon) account → ban handle + abuse friction.
