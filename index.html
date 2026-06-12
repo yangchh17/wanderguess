@@ -32,7 +32,7 @@
     body{
       font-family:'Inter',system-ui,-apple-system,sans-serif;color:var(--ink);
       background:var(--bg);min-height:100dvh;display:flex;flex-direction:column;gap:16px;
-      padding:max(18px,env(safe-area-inset-top)) 16px max(22px,env(safe-area-inset-bottom));
+      padding:max(18px,env(safe-area-inset-top)) 16px calc(68px + env(safe-area-inset-bottom));
       position:relative;overflow-x:hidden;background-attachment:fixed;
       background-image:
         radial-gradient(1100px 640px at 12% -12%, rgba(91,156,255,.20), transparent 58%),
@@ -311,9 +311,25 @@
     .help-tip .tip-opt b{color:var(--ink)}
     .help-tip code{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:1px 6px;font:inherit;font-size:.82rem;color:var(--ink)}
     /* toast */
-    .toast{position:fixed;bottom:max(28px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(12px);background:rgba(30,35,55,.97);border:1px solid var(--line-2);color:var(--ink);padding:10px 18px;border-radius:24px;font-size:.88rem;font-weight:500;white-space:nowrap;opacity:0;transition:opacity .2s,transform .2s;z-index:1500;pointer-events:none}
+    .toast{position:fixed;bottom:calc(68px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(12px);background:rgba(30,35,55,.97);border:1px solid var(--line-2);color:var(--ink);padding:10px 18px;border-radius:24px;font-size:.88rem;font-weight:500;white-space:nowrap;opacity:0;transition:opacity .2s,transform .2s;z-index:1500;pointer-events:none}
     .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
     .toast.good{border-color:rgba(84,230,160,.4);color:var(--good)}
+
+    /* ── Bottom tab bar ── */
+    #tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:900;display:flex;
+      background:rgba(10,13,22,.9);border-top:1px solid var(--line);
+      -webkit-backdrop-filter:blur(18px) saturate(1.3);backdrop-filter:blur(18px) saturate(1.3);
+      padding-bottom:env(safe-area-inset-bottom)}
+    .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:3px;background:none;border:none;color:var(--faint);font:inherit;font-size:.62rem;
+      font-weight:600;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+      padding:9px 0 7px;-webkit-tap-highlight-color:transparent;transition:color .15s;position:relative}
+    .tab.on{color:var(--primary-2)}
+    .tab svg{transition:transform .15s;display:block}
+    .tab.on svg{transform:scale(1.1)}
+    .tab-badge{position:absolute;top:7px;right:calc(50% - 16px);width:7px;height:7px;
+      border-radius:50%;background:var(--good);border:2px solid #0a0d16;display:none}
+    .tab-badge.show{display:block}
   </style>
 </head>
 <body>
@@ -336,29 +352,6 @@
   <!-- ───────── Home ───────── -->
   <section id="s-home" class="screen on">
     <p class="tagline">Drop your friends onto a world map and see who really knows where your photos were taken.</p>
-
-    <div class="card" id="account-card">
-      <div class="rowhead">
-        <div><span class="eyebrow">Account</span><div id="acct-status" class="mut">Loading…</div></div>
-        <button id="btn-stats" class="btn btn-ghost btn-sm" type="button">My stats</button>
-      </div>
-      <div id="acct-actions">
-        <div id="acct-guest" class="code-actions" style="display:none">
-          <button id="btn-acct-signin" class="btn btn-ghost btn-sm" type="button">Sign in</button>
-          <button id="btn-acct-create" class="btn btn-primary btn-sm" type="button">Save progress</button>
-        </div>
-        <button id="btn-acct-signout" class="btn btn-ghost btn-sm" type="button" style="display:none">Sign out</button>
-      </div>
-      <div id="acct-form" style="display:none">
-        <input id="acct-email" type="email" placeholder="you@email.com" autocomplete="email" />
-        <input id="acct-pass" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" />
-        <div class="code-actions">
-          <button id="acct-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
-          <button id="acct-submit" class="btn btn-primary btn-sm" type="button">Create account</button>
-        </div>
-      </div>
-      <div id="acct-msg" class="msg"></div>
-    </div>
 
     <div class="card resume" id="rejoin-card" style="display:none">
       <span class="resume-ic">↩</span>
@@ -403,17 +396,6 @@
     </div>
 
     <div id="home-msg" class="msg"></div>
-
-    <button id="fb-toggle" class="linkbtn" type="button" style="margin:0 auto">💡 Suggest an improvement</button>
-    <div class="card" id="fb-card" style="display:none">
-      <span class="eyebrow">Your suggestion</span>
-      <textarea id="fb-text" maxlength="2000" placeholder="What would make the game better?"></textarea>
-      <div class="code-actions">
-        <button id="fb-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
-        <button id="fb-send" class="btn btn-primary btn-sm" type="button">Send</button>
-      </div>
-      <div id="fb-msg" class="msg"></div>
-    </div>
   </section>
 
   <!-- ───────── Lobby ───────── -->
@@ -468,16 +450,57 @@
     </div>
   </section>
 
-  <!-- ───────── Profile / stats & history ───────── -->
+  <!-- ───────── Profile ───────── -->
   <section id="s-profile" class="screen">
+    <div class="card" id="account-card">
+      <div class="rowhead">
+        <div><span class="eyebrow">Account</span><div id="acct-status" class="mut">Loading…</div></div>
+      </div>
+      <div id="acct-actions">
+        <div id="acct-guest" class="code-actions" style="display:none">
+          <button id="btn-acct-signin" class="btn btn-ghost btn-sm" type="button">Sign in</button>
+          <button id="btn-acct-create" class="btn btn-primary btn-sm" type="button">Save progress</button>
+        </div>
+        <button id="btn-acct-signout" class="btn btn-ghost btn-sm" type="button" style="display:none">Sign out</button>
+      </div>
+      <div id="acct-form" style="display:none">
+        <input id="acct-email" type="email" placeholder="you@email.com" autocomplete="email" />
+        <input id="acct-pass" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" />
+        <div class="code-actions">
+          <button id="acct-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+          <button id="acct-submit" class="btn btn-primary btn-sm" type="button">Create account</button>
+        </div>
+      </div>
+      <div id="acct-msg" class="msg"></div>
+    </div>
     <div class="card">
-      <div class="rowhead"><h2>Your stats</h2><button id="prof-back" class="linkbtn" type="button">← Back</button></div>
+      <h2>Your stats</h2>
       <div id="stats-grid" class="stats-grid"><span class="mut">Loading…</span></div>
       <span class="mut" id="prof-closest"></span>
     </div>
     <div class="card">
       <h2>Recent games</h2>
       <div id="history-list" class="lb"><span class="mut">No games yet.</span></div>
+    </div>
+    <button id="fb-toggle" class="linkbtn" type="button" style="margin:0 auto">💡 Suggest an improvement</button>
+    <div class="card" id="fb-card" style="display:none">
+      <span class="eyebrow">Your suggestion</span>
+      <textarea id="fb-text" maxlength="2000" placeholder="What would make the game better?"></textarea>
+      <div class="code-actions">
+        <button id="fb-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+        <button id="fb-send" class="btn btn-primary btn-sm" type="button">Send</button>
+      </div>
+      <div id="fb-msg" class="msg"></div>
+    </div>
+  </section>
+
+  <!-- ───────── Library (placeholder — Stage 1) ───────── -->
+  <section id="s-library" class="screen">
+    <div class="card" style="align-items:center;text-align:center;padding:32px 20px;gap:16px">
+      <div style="font-size:2.6rem">📸</div>
+      <h2>Your Library</h2>
+      <p class="mut">Build your photo collection here before joining a game — no time pressure, and perfect for iOS users who want to set pins on their own schedule.</p>
+      <p class="mut" style="font-size:.8rem;color:var(--faint)">Coming soon</p>
     </div>
   </section>
 
@@ -599,13 +622,45 @@
   </div>
 </div>
 
+<!-- ───────── Bottom tab bar ───────── -->
+<nav id="tab-bar">
+  <button class="tab on" data-tab="play" id="tab-play" type="button">
+    <span class="tab-badge"></span>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+    </svg>
+    <span>Play</span>
+  </button>
+  <button class="tab" data-tab="library" id="tab-library" type="button">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+    </svg>
+    <span>Library</span>
+  </button>
+  <button class="tab" data-tab="profile" id="tab-profile" type="button">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+    </svg>
+    <span>Profile</span>
+  </button>
+</nav>
+
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { makeDisplaySource, isHeic } from './shared/media.js?v=2';
 import { scoreGuess, formatKm } from './shared/geo.js?v=2';
 
 const $ = id => document.getElementById(id);
-const show = s => document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));
+const SCREEN_TAB = {'s-home':'play','s-lobby':'play','s-library':'library','s-profile':'profile'};
+function show(s){
+  document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));
+  const t = SCREEN_TAB[s];
+  if (t) document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  const badge = document.querySelector('#tab-play .tab-badge');
+  if (badge) badge.classList.toggle('show', !!session && t !== 'play');
+}
 
 if (!window.SUPA || window.SUPA.url.includes('YOUR-PROJECT')) {
   $('home-msg').className = 'msg err';
@@ -1464,6 +1519,7 @@ $('fb-send').addEventListener('click', async () => {
 
 async function openProfile(){
   show('s-profile');
+  refreshAccount();
   $('stats-grid').innerHTML = '<span class="mut">Loading…</span>';
   $('history-list').innerHTML = '<span class="mut">Loading…</span>';
   $('prof-closest').textContent = '';
@@ -1487,8 +1543,20 @@ async function openProfile(){
       `<span class="hpts">${(r.points || 0).toLocaleString()}</span></div>`;
   }).join('') : '<span class="mut">No games yet — play a round to start your history.</span>';
 }
-$('btn-stats').addEventListener('click', openProfile);
-$('prof-back').addEventListener('click', () => { show('s-home'); refreshHome(); });
+// Tab bar navigation
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.tab;
+    if (t === 'play') {
+      if (session) { show('s-lobby'); refreshLobby(); }
+      else { show('s-home'); refreshHome(); }
+    } else if (t === 'library') {
+      show('s-library');
+    } else if (t === 'profile') {
+      openProfile();
+    }
+  });
+});
 
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
