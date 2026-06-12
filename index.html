@@ -215,10 +215,13 @@
     /* ── Play screen (full-screen GeoGuessr layout) ── */
     #s-play{position:fixed;inset:0;z-index:1100;background:#05070d;display:none}
     #s-play.on{display:block;animation:fadeIn .3s ease}
-    #g-stage{position:absolute;inset:0;background:#05070d}
+    #g-stage{position:absolute;inset:0;background:#05070d;overflow:hidden;touch-action:none;cursor:grab}
+    #g-stage.grabbing{cursor:grabbing}
     /* Photo as a CSS background so it can't be long-pressed / saved (anti-cheat). */
     #g-photo{position:absolute;inset:0;background-size:contain;background-position:center;background-repeat:no-repeat;
+      transform-origin:center center;will-change:transform;transition:transform .08s linear;
       -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none}
+    #g-photo.dragging{transition:none}
     #g-spin{position:absolute;inset:0;display:none;align-items:center;justify-content:center;gap:10px;color:#6b7194;font-size:.85rem;background:#05070d;z-index:2}
     #g-spin.on{display:flex}
     #g-spin::before{content:'';width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,.2);border-top-color:var(--primary-2);animation:spin .8s linear infinite}
@@ -251,6 +254,21 @@
     #g-finish.on{display:flex;animation:fadeIn .35s ease}
     #g-finish h2{font-size:1.7rem;background:var(--grad-text);-webkit-background-clip:text;background-clip:text;color:transparent}
     #g-finish .lb{max-width:440px}
+    /* photo zoom controls */
+    #g-zoom{position:absolute;left:13px;bottom:max(13px,env(safe-area-inset-bottom));z-index:6;display:flex;flex-direction:column;gap:6px}
+    #g-zoom button{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:rgba(12,16,26,.72);color:#eaeefb;font-size:20px;line-height:1;cursor:pointer;display:grid;place-items:center;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+    #g-zoom button:active{transform:scale(.92)}
+    /* round-result reveal card */
+    #g-reveal-card{position:absolute;left:50%;top:max(70px,calc(env(safe-area-inset-top) + 60px));transform:translateX(-50%);z-index:7;
+      width:min(92vw,420px);background:rgba(12,16,26,.86);border:1px solid var(--line-2);border-radius:18px;padding:14px 18px;
+      box-shadow:var(--shadow-lg);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:none;text-align:center}
+    #g-reveal-card.on{display:block;animation:revealIn .42s cubic-bezier(.2,.7,.2,1)}
+    @keyframes revealIn{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
+    #rv-dist{font-size:.95rem;color:var(--mut)}
+    #rv-dist b{font-family:'Space Grotesk',sans-serif;color:var(--primary-2);font-weight:600}
+    #rv-pts{font-family:'Space Grotesk',sans-serif;font-size:2.1rem;font-weight:700;color:var(--good);line-height:1.1;margin-top:3px}
+    #rv-bar{height:8px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:11px}
+    #rv-bar > i{display:block;height:100%;width:0;border-radius:6px;background:var(--grad-good);transition:width .85s cubic-bezier(.2,.7,.2,1)}
   </style>
 </head>
 <body>
@@ -374,6 +392,18 @@
 <div id="s-play">
   <div id="g-stage"><div id="g-photo"></div></div>
   <div id="g-spin">loading photo…</div>
+
+  <div id="g-reveal-card">
+    <div id="rv-dist">—</div>
+    <div id="rv-pts">0</div>
+    <div id="rv-bar"><i></i></div>
+  </div>
+
+  <div id="g-zoom">
+    <button id="g-zin" type="button" aria-label="Zoom in">+</button>
+    <button id="g-zout" type="button" aria-label="Zoom out">−</button>
+    <button id="g-zreset" type="button" aria-label="Reset zoom">⌖</button>
+  </div>
 
   <div id="g-top">
     <button id="g-exit">← Lobby</button>
@@ -940,8 +970,7 @@ function onTimeUp(){
   // No pin placed → 0 points, no reveal (truth stays withheld), move on.
   gstate.phase = 'revealed';
   addDone(gstate.queue[gstate.idx].id);
-  $('g-dist').textContent = '—'; $('g-pts').textContent = '0';
-  $('g-result').style.display = 'flex';
+  showReveal(null, 0);
   $('g-confirm').style.display = 'none';
   $('g-next').style.display = '';
   $('g-next').textContent = (gstate.idx + 1 < gstate.queue.length) ? "Time's up · Next" : "Time's up · Finish";
@@ -1018,7 +1047,7 @@ function renderGuess(){
   if (gmap) gmap.setView([20, 0], 2);
   const ph = gstate.queue[gstate.idx];
   $('g-round').textContent = `${gstate.idx + 1} / ${gstate.queue.length}`;
-  $('g-result').style.display = 'none';
+  hideReveal(); resetZoom();
   $('g-confirm').style.display = ''; $('g-confirm').disabled = true; $('g-confirm').textContent = 'Tap the map to guess';
   $('g-next').style.display = 'none';
   const photo = $('g-photo');
@@ -1061,9 +1090,7 @@ async function confirmGuess2(){
   gLine = L.polyline([truth, gstate.guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
   setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gstate.guess]).pad(.25)); }, 280);
 
-  $('g-dist').textContent = formatKm(distanceKm);
-  $('g-pts').textContent = points.toLocaleString();
-  $('g-result').style.display = 'flex';
+  showReveal(distanceKm, res.points);
   $('g-confirm').style.display = 'none';
   $('g-next').style.display = '';
   $('g-next').textContent = (gstate.idx + 1 < gstate.queue.length) ? 'Next photo' : 'Finish';
@@ -1127,6 +1154,85 @@ $('btn-newgame').addEventListener('click', async () => {
 $('g-expand').addEventListener('click', () => setGExpanded(!$('g-mapPanel').classList.contains('expanded')));
 $('g-stage').addEventListener('contextmenu', e => e.preventDefault());   // block right-click "Save image"
 
+// ── Photo zoom & pan (inspect signs/landmarks like GeoGuessr; stays a CSS background) ──
+let zScale = 1, zX = 0, zY = 0; const Z_MIN = 1, Z_MAX = 5;
+function applyZoom(){ $('g-photo').style.transform = `translate(${zX}px,${zY}px) scale(${zScale})`; }
+function resetZoom(){ zScale = 1; zX = 0; zY = 0; applyZoom(); }
+function clampPan(){
+  const st = $('g-stage'); const mx = (zScale - 1) * st.clientWidth / 2, my = (zScale - 1) * st.clientHeight / 2;
+  zX = Math.max(-mx, Math.min(mx, zX)); zY = Math.max(-my, Math.min(my, zY));
+}
+function zoomAt(px, py, next){
+  next = Math.max(Z_MIN, Math.min(Z_MAX, next));
+  const st = $('g-stage'); const dx = px - st.clientWidth / 2, dy = py - st.clientHeight / 2;
+  zX = dx - (next / zScale) * (dx - zX); zY = dy - (next / zScale) * (dy - zY);
+  zScale = next; clampPan(); applyZoom();
+}
+(function initZoom(){
+  const st = $('g-stage'); const pts = new Map(); let last = null, pinchD = 0, pinchS = 1;
+  const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  st.addEventListener('pointerdown', e => {
+    if (gstate.phase !== 'guessing') return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { st.setPointerCapture(e.pointerId); } catch {}
+    if (pts.size === 1) { last = { x: e.clientX, y: e.clientY }; $('g-photo').classList.add('dragging'); st.classList.add('grabbing'); }
+    else if (pts.size === 2) { const a = [...pts.values()]; pinchD = d2(a[0], a[1]); pinchS = zScale; }
+  });
+  st.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {
+      const a = [...pts.values()], r = st.getBoundingClientRect();
+      const mid = { x: (a[0].x + a[1].x) / 2 - r.left, y: (a[0].y + a[1].y) / 2 - r.top };
+      if (pinchD) zoomAt(mid.x, mid.y, pinchS * (d2(a[0], a[1]) / pinchD));
+    } else if (pts.size === 1 && zScale > 1 && last) {
+      zX += e.clientX - last.x; zY += e.clientY - last.y; last = { x: e.clientX, y: e.clientY }; clampPan(); applyZoom();
+    }
+  });
+  const end = e => { pts.delete(e.pointerId); if (pts.size < 2) pinchD = 0;
+    if (pts.size === 0) { last = null; $('g-photo').classList.remove('dragging'); st.classList.remove('grabbing'); } };
+  st.addEventListener('pointerup', end); st.addEventListener('pointercancel', end);
+  st.addEventListener('wheel', e => {
+    if (gstate.phase !== 'guessing') return; e.preventDefault();
+    const r = st.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, zScale * Math.exp(-e.deltaY * 0.0015));
+  }, { passive: false });
+  st.addEventListener('dblclick', e => {
+    if (gstate.phase !== 'guessing') return;
+    const r = st.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, zScale > 1 ? 1 : 2.5);
+  });
+  const center = f => { const s = $('g-stage'); zoomAt(s.clientWidth / 2, s.clientHeight / 2, zScale * f); };
+  $('g-zin').addEventListener('click', () => center(1.6));
+  $('g-zout').addEventListener('click', () => center(1 / 1.6));
+  $('g-zreset').addEventListener('click', resetZoom);
+})();
+
+// ── Round-result reveal card: animated points count-up + 0–5000 score bar ──
+let rvRAF = null;
+function showReveal(distanceKm, points){
+  const card = $('g-reveal-card'); card.classList.add('on');
+  $('rv-dist').innerHTML = (distanceKm == null) ? 'Out of time — no guess' : `You were <b>${formatKm(distanceKm)}</b> away`;
+  const bar = document.querySelector('#rv-bar > i'); bar.style.width = '0%';
+  cancelAnimationFrame(rvRAF);
+  const t0 = performance.now(), dur = 850;
+  const tick = t => {
+    const k = Math.min(1, (t - t0) / dur), ease = 1 - Math.pow(1 - k, 3);
+    $('rv-pts').textContent = Math.round(points * ease).toLocaleString();
+    if (k < 1) rvRAF = requestAnimationFrame(tick);
+  };
+  rvRAF = requestAnimationFrame(tick);
+  requestAnimationFrame(() => { bar.style.width = (Math.max(0, Math.min(1, points / 5000)) * 100) + '%'; });
+}
+function hideReveal(){ const c = $('g-reveal-card'); if (c) c.classList.remove('on'); cancelAnimationFrame(rvRAF); }
+
+// ── Desktop keyboard: Enter/Space confirms a placed guess, or advances after the reveal ──
+document.addEventListener('keydown', e => {
+  if (!$('s-play').classList.contains('on')) return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    if (gstate.phase === 'guessing' && gstate.guess) { e.preventDefault(); confirmGuess2(); }
+    else if (gstate.phase === 'revealed') { e.preventDefault(); nextGuess(); }
+  }
+});
+
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 // resume an existing session if present (after auth is ready); else offer rejoin
@@ -1185,7 +1291,7 @@ ensureAuth().then(() => { if (session && session.roomId) enterLobby(); else refr
     new MutationObserver(() => { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); })
       .observe(el, { childList: true, characterData: true, subtree: true });
   };
-  bump('g-score'); bump('g-pts');
+  bump('g-score');
 })();
 </script>
 </body>
