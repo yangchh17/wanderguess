@@ -909,11 +909,11 @@ let pinMap = null, pinMarker = null, pinLatLng = null, pinResolve = null;
 
 function ensurePinMap(){
   if (pinMap) return;
-  pinMap = L.map('pinmap-map', { center: [20, 0], zoom: 2 });
+  pinMap = L.map('pinmap-map', { center: [20, 0], zoom: 2, worldCopyJump: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(pinMap);
   pinMap.on('click', (e) => {
-    pinLatLng = e.latlng;
+    pinLatLng = L.latLng(e.latlng).wrap();   // canonical lng even on a wrapped world copy
     const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
     if (pinMarker) pinMarker.setLatLng(e.latlng);
     else pinMarker = L.marker(e.latlng, { icon }).addTo(pinMap);
@@ -1044,9 +1044,20 @@ async function uploadOne(file){
 const gstate = { queue: [], idx: 0, guess: null, phase: 'idle', score: 0 };
 let gmap = null, gGuessMarker = null, gTruthMarker = null, gLine = null;
 
+// Clicks on a panned-past-the-antimeridian world copy report longitudes outside
+// [-180,180] (e.g. 250°); wrap them so stored guesses are canonical.
+const wrapLL = ll => { const w = L.latLng(ll).wrap(); return { lat: w.lat, lng: w.lng }; };
+// Re-express b's longitude within 180° of a's so a drawn a–b line takes the short
+// path across the date line instead of spanning the whole map.
+function nearLng(a, b){
+  let lng = b.lng;
+  if (lng - a.lng > 180) lng -= 360; else if (a.lng - lng > 180) lng += 360;
+  return { lat: b.lat, lng };
+}
+
 function ensureGuessMap(){
   if (gmap) return;
-  gmap = L.map('g-map', { center: [20, 0], zoom: 2 });
+  gmap = L.map('g-map', { center: [20, 0], zoom: 2, worldCopyJump: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(gmap);
   new ResizeObserver(() => gmap.invalidateSize()).observe(document.getElementById('g-map'));
@@ -1058,7 +1069,7 @@ function ensureGuessMap(){
     if (gstate.phase !== 'guessing') return;
     // Touch: first tap expands the small map; next tap drops the pin.
     if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
-    gstate.guess = { lat: e.latlng.lat, lng: e.latlng.lng };
+    gstate.guess = wrapLL(e.latlng);
     const icon = L.divIcon({ className: '', html: '<div class="guesspin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
     if (gGuessMarker) gGuessMarker.setLatLng(e.latlng);
     else gGuessMarker = L.marker(e.latlng, { icon }).addTo(gmap);
@@ -1112,7 +1123,7 @@ const pinIcon = cls => L.divIcon({ className: '', html: `<div class="${cls}"></d
 let rmap = null, rLayers = [];
 function ensureResultsMap(){
   if (rmap) return;
-  rmap = L.map('r-map', { center: [20, 0], zoom: 2 });
+  rmap = L.map('r-map', { center: [20, 0], zoom: 2, worldCopyJump: true });
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(rmap);
   new ResizeObserver(() => rmap.invalidateSize()).observe(document.getElementById('r-map'));
 }
@@ -1131,7 +1142,9 @@ async function openResults(){
   if (!rows.length) { rmap.setView([20, 0], 2); return; }
   const bounds = [];
   for (const r of rows){
-    const truth = [r.truth_lat, r.truth_lng], guess = [r.guess_lat, r.guess_lng];
+    const truth = [r.truth_lat, r.truth_lng];
+    const gN = nearLng({ lat: r.truth_lat, lng: r.truth_lng }, { lat: r.guess_lat, lng: r.guess_lng });
+    const guess = [gN.lat, gN.lng];
     const popup = `<div style="text-align:center">` +
       `<img src="${r.display_url}" style="width:150px;height:auto;border-radius:6px;display:block;margin:0 auto 5px"/>` +
       `<b>${r.points.toLocaleString()} pts</b> · ${formatKm(r.distance_km)} off</div>`;
@@ -1212,10 +1225,12 @@ async function confirmGuess2(){
   $('g-score').textContent = gstate.score.toLocaleString();
 
   setGExpanded(true);
+  const gNear = nearLng(truth, gstate.guess);   // short path across the date line
+  if (gGuessMarker) gGuessMarker.setLatLng(gNear);
   const icon = L.divIcon({ className: '', html: '<div class="truthpin"></div>', iconSize: [20,20], iconAnchor: [10,10] });
   gTruthMarker = L.marker(truth, { icon }).bindTooltip('Actual location').addTo(gmap);
-  gLine = L.polyline([truth, gstate.guess], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
-  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gstate.guess]).pad(.25)); }, 280);
+  gLine = L.polyline([truth, gNear], { color: '#adb4d4', weight: 2, dashArray: '6 4', opacity: .7 }).addTo(gmap);
+  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gNear]).pad(.25)); }, 280);
 
   showReveal(distanceKm, res.points);
   $('g-confirm').style.display = 'none';
