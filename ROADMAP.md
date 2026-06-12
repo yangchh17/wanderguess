@@ -66,18 +66,25 @@ overwrite closed (v8).
 
 ---
 
-## 🚧 In progress — Accounts, history & scoreboards
-Builds on the anonymous-auth foundation. **Guest play stays forever.**
-- Account = upgrade the existing anonymous identity to a permanent one
-  (`auth.updateUser({email,password})`), so `auth.uid()` — and all accrued
-  history — is preserved. Returning users `signInWithPassword`; sign-out drops
-  back to a fresh anonymous guest.
-- Durable history via a new `game_results` table (one row per finished game,
-  per user): total points, photos guessed, best single-photo points, closest km.
-  Written by a server-authoritative `record_game` RPC at finish (ownership-checked,
-  no truth leak). Survives same-room rematches (which delete live `guesses`).
-- `get_my_history()` (recent games) + `get_my_stats()` (lifetime aggregates) RPCs;
-  a Profile/Stats screen in the client.
+## ✅ Accounts, history & scoreboards (shipped — guest play stays forever)
+- **Durable history**: new `game_results` table (one row per finished game, per
+  user — total points, photos guessed, best single-photo points, closest km).
+  Written by the server-authoritative `record_game(p_player_id)` RPC at finish
+  (ownership-checked via `auth.uid()`, no truth leak). Survives same-room rematches
+  (which delete live `guesses`) and room deletion (`room_id → null`, code kept).
+- **Stats & history screen** ("My stats" on Home): lifetime tiles (games, total /
+  avg / best-game points, photos, best photo, closest-ever guess) + recent games,
+  via `get_my_stats()` / `get_my_history()`. Works for guests too (accrues under
+  the anonymous uid).
+- **Accounts**: Home account card. "Save progress" upgrades the anonymous user in
+  place (`auth.updateUser({email,password})`) — same `auth.uid()`, so all history
+  carries over. "Sign in" (`signInWithPassword`) for returning users; "Sign out"
+  drops back to a fresh anonymous guest.
+- ⚠️ **Owner action for smooth signup:** email **Confirm email** is currently ON
+  and uses Supabase's built-in (rate-limited, test-only) mailer. For instant
+  email+password accounts, turn **Authentication → Sign In/Providers → Email →
+  "Confirm email" OFF**, or configure custom SMTP. (Alternatively add Google OAuth
+  — needs owner-created credentials.) History/stats work regardless.
 - Later: global all-time leaderboard (needs stable profile names), photo archive
   ("select from your stack"), friends.
 

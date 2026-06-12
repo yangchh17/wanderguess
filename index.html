@@ -269,6 +269,20 @@
     #rv-pts{font-family:'Space Grotesk',sans-serif;font-size:2.1rem;font-weight:700;color:var(--good);line-height:1.1;margin-top:3px}
     #rv-bar{height:8px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:11px}
     #rv-bar > i{display:block;height:100%;width:0;border-radius:6px;background:var(--grad-good);transition:width .85s cubic-bezier(.2,.7,.2,1)}
+    /* account + profile/stats */
+    #acct-status{margin-top:3px}
+    #acct-status b{color:var(--ink);font-weight:600}
+    #acct-form{display:flex;flex-direction:column;gap:10px;margin-top:2px}
+    #acct-actions .btn,#acct-form .code-actions .btn{width:100%}
+    .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+    .stat{background:var(--inset);border:1px solid var(--line);border-radius:var(--r);padding:13px 8px;text-align:center}
+    .stat .v{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.32rem;color:var(--good);line-height:1.1}
+    .stat .k{font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-top:5px}
+    .hrow{display:flex;align-items:center;gap:11px;padding:11px 13px;background:var(--inset);border:1px solid var(--line);border-radius:var(--r);font-size:.9rem}
+    .hrow .hcode{font-family:'Space Grotesk',sans-serif;font-weight:700;color:var(--primary-2);flex:0 0 auto}
+    .hrow .hmeta{flex:1;min-width:0;color:var(--mut);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .hrow .hpts{color:var(--good);font-weight:700;font-family:'Space Grotesk',sans-serif;flex:0 0 auto}
+    @media (max-width:380px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body>
@@ -290,6 +304,29 @@
   <!-- ───────── Home ───────── -->
   <section id="s-home" class="screen on">
     <p class="tagline">Drop your friends onto a world map and see who really knows where your photos were taken.</p>
+
+    <div class="card" id="account-card">
+      <div class="rowhead">
+        <div><span class="eyebrow">Account</span><div id="acct-status" class="mut">Loading…</div></div>
+        <button id="btn-stats" class="btn btn-ghost btn-sm" type="button">My stats</button>
+      </div>
+      <div id="acct-actions">
+        <div id="acct-guest" class="code-actions" style="display:none">
+          <button id="btn-acct-signin" class="btn btn-ghost btn-sm" type="button">Sign in</button>
+          <button id="btn-acct-create" class="btn btn-primary btn-sm" type="button">Save progress</button>
+        </div>
+        <button id="btn-acct-signout" class="btn btn-ghost btn-sm" type="button" style="display:none">Sign out</button>
+      </div>
+      <div id="acct-form" style="display:none">
+        <input id="acct-email" type="email" placeholder="you@email.com" autocomplete="email" />
+        <input id="acct-pass" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" />
+        <div class="code-actions">
+          <button id="acct-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+          <button id="acct-submit" class="btn btn-primary btn-sm" type="button">Create account</button>
+        </div>
+      </div>
+      <div id="acct-msg" class="msg"></div>
+    </div>
 
     <div class="card resume" id="rejoin-card" style="display:none">
       <span class="resume-ic">↩</span>
@@ -385,6 +422,19 @@
       <div id="leaderboard" class="lb"><span class="mut">No scores yet.</span></div>
       <button id="btn-results" class="btn btn-ghost">See all locations</button>
       <button id="btn-newgame" class="btn btn-ghost" style="display:none">New game (resets room)</button>
+    </div>
+  </section>
+
+  <!-- ───────── Profile / stats & history ───────── -->
+  <section id="s-profile" class="screen">
+    <div class="card">
+      <div class="rowhead"><h2>Your stats</h2><button id="prof-back" class="linkbtn" type="button">← Back</button></div>
+      <div id="stats-grid" class="stats-grid"><span class="mut">Loading…</span></div>
+      <span class="mut" id="prof-closest"></span>
+    </div>
+    <div class="card">
+      <h2>Recent games</h2>
+      <div id="history-list" class="lb"><span class="mut">No games yet.</span></div>
     </div>
   </section>
 
@@ -1104,6 +1154,7 @@ function nextGuess(){
 async function finishPlay(){
   clearTimer();
   gstate.phase = 'done';
+  try { await sb.rpc('record_game', { p_player_id: session.playerId }); } catch (e) { console.warn('record_game', e); }
   $('g-finish-sub').textContent = gstate.queue.length
     ? `You scored ${gstate.score.toLocaleString()} this round.`
     : 'No new photos for you to guess yet — check back after others upload.';
@@ -1233,11 +1284,92 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ──────────────── Account (anonymous → permanent) + stats / history ────────────────
+// Upgrading the anonymous user keeps the same auth.uid(), so all history carries over.
+let acctMode = 'create';   // 'create' | 'signin'
+async function refreshAccount(){
+  const { data: { user } } = await sb.auth.getUser();
+  const signedIn = !!(user && !user.is_anonymous && user.email);
+  $('acct-status').innerHTML = signedIn
+    ? `Signed in as <b>${escapeHtml(user.email)}</b>`
+    : `Playing as <b>guest</b> — stats save on this device; create an account to keep them anywhere.`;
+  $('acct-guest').style.display = signedIn ? 'none' : '';
+  $('btn-acct-signout').style.display = signedIn ? '' : 'none';
+  $('acct-form').style.display = 'none';
+}
+function acctMsg(t, err){ $('acct-msg').className = 'msg ' + (err ? 'err' : (t ? 'ok' : '')); $('acct-msg').textContent = t || ''; }
+function openAcctForm(mode){
+  acctMode = mode;
+  $('acct-form').style.display = '';
+  $('acct-submit').textContent = mode === 'signin' ? 'Sign in' : 'Create account';
+  $('acct-pass').setAttribute('autocomplete', mode === 'signin' ? 'current-password' : 'new-password');
+  acctMsg(''); $('acct-email').focus();
+}
+$('btn-acct-create').addEventListener('click', () => openAcctForm('create'));
+$('btn-acct-signin').addEventListener('click', () => openAcctForm('signin'));
+$('acct-cancel').addEventListener('click', () => { $('acct-form').style.display = 'none'; acctMsg(''); });
+$('acct-submit').addEventListener('click', async () => {
+  const email = $('acct-email').value.trim(), pass = $('acct-pass').value;
+  if (!email || !pass) return acctMsg('Enter an email and password.', true);
+  if (acctMode === 'create' && pass.length < 8) return acctMsg('Password must be at least 8 characters.', true);
+  $('acct-submit').disabled = true;
+  try {
+    if (acctMode === 'signin') {
+      const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) throw error;
+      localStorage.removeItem(LS); session = null;          // a different identity → leave the guest room
+      acctMsg('Signed in ✓'); await refreshAccount(); refreshHome();
+    } else {
+      const { data, error } = await sb.auth.updateUser({ email, password: pass });   // upgrade in place
+      if (error) throw error;
+      if (data.user && data.user.email) acctMsg('Account created ✓ — your history is saved.');
+      else acctMsg('Almost there — check your email to confirm your account.');
+      await refreshAccount();
+    }
+    $('acct-form').style.display = 'none';
+  } catch (e) { acctMsg('Error: ' + (e.message || e), true); }
+  finally { $('acct-submit').disabled = false; }
+});
+$('btn-acct-signout').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  await sb.auth.signInAnonymously();        // drop back to a fresh guest so play still works
+  localStorage.removeItem(LS); session = null;
+  acctMsg('Signed out.'); await refreshAccount(); refreshHome();
+});
+
+async function openProfile(){
+  show('s-profile');
+  $('stats-grid').innerHTML = '<span class="mut">Loading…</span>';
+  $('history-list').innerHTML = '<span class="mut">Loading…</span>';
+  $('prof-closest').textContent = '';
+  const [{ data: s }, { data: h }] = await Promise.all([ sb.rpc('get_my_stats'), sb.rpc('get_my_history') ]);
+  const st = (s && s[0]) || {};
+  const tiles = [
+    ['Games', (st.games || 0).toLocaleString()],
+    ['Total pts', (st.total_points || 0).toLocaleString()],
+    ['Avg / game', (st.avg_points || 0).toLocaleString()],
+    ['Best game', (st.best_game || 0).toLocaleString()],
+    ['Photos', (st.total_photos || 0).toLocaleString()],
+    ['Best photo', (st.best_points || 0).toLocaleString()],
+  ];
+  $('stats-grid').innerHTML = tiles.map(([k, v]) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  $('prof-closest').textContent = (st.closest_km != null) ? `Closest guess ever: ${formatKm(st.closest_km)}.` : '';
+  const rows = h || [];
+  $('history-list').innerHTML = rows.length ? rows.map(r => {
+    const d = new Date(r.finished_at), ds = isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `<div class="hrow"><span class="hcode">${escapeHtml(r.room_code || '—')}</span>` +
+      `<span class="hmeta">${ds} · ${r.photos_guessed} photo${r.photos_guessed === 1 ? '' : 's'}</span>` +
+      `<span class="hpts">${(r.points || 0).toLocaleString()}</span></div>`;
+  }).join('') : '<span class="mut">No games yet — play a round to start your history.</span>';
+}
+$('btn-stats').addEventListener('click', openProfile);
+$('prof-back').addEventListener('click', () => { show('s-home'); refreshHome(); });
+
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 // resume an existing session if present (after auth is ready); else offer rejoin
 refreshHome();
-ensureAuth().then(() => { if (session && session.roomId) enterLobby(); else refreshHome(); });
+ensureAuth().then(() => { refreshAccount(); if (session && session.roomId) enterLobby(); else refreshHome(); });
 </script>
 
 <!-- UI enhancements (decoupled from the game module: reads the DOM only) -->

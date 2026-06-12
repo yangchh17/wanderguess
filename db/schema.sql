@@ -400,3 +400,77 @@ begin
   update players set ready = false   where room_id = v_room;
   update rooms   set status = 'lobby', game_seq = game_seq + 1 where id = v_room;
 end; $$;
+
+
+-- ============================================================
+--  ACCOUNTS, HISTORY & SCOREBOARDS
+--  Durable per-finished-game snapshot per user. Survives same-room rematches
+--  (which delete live `guesses`) and room deletion (room_id -> null, code kept).
+--  Accounts = upgrade the anonymous user in place (client: auth.updateUser),
+--  so auth.uid() and all history are preserved. Guest play stays forever.
+-- ============================================================
+create table if not exists public.game_results (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  room_id uuid references public.rooms(id) on delete set null,
+  game_seq int not null default 0,
+  room_code text,
+  points int not null default 0,
+  photos_guessed int not null default 0,
+  best_points int not null default 0,
+  closest_km double precision,
+  finished_at timestamptz not null default now(),
+  unique (user_id, room_id, game_seq)
+);
+alter table public.game_results enable row level security;
+drop policy if exists gr_select on public.game_results;
+create policy gr_select on public.game_results for select to anon, authenticated using (user_id = auth.uid());
+revoke all on public.game_results from anon, authenticated;
+grant select on public.game_results to anon, authenticated;   -- writes only via record_game (definer)
+
+-- Snapshot the caller's own finished game (sum of their guesses for the current game).
+create or replace function public.record_game(p_player_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_uid uuid; v_room uuid; v_seq int; v_code text;
+        v_points int; v_count int; v_best int; v_closest double precision;
+begin
+  select user_id, room_id into v_uid, v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_uid is null then raise exception 'not your player'; end if;
+  select game_seq, code into v_seq, v_code from rooms where id = v_room;
+  select coalesce(sum(points),0), count(*), coalesce(max(points),0), min(distance_km)
+    into v_points, v_count, v_best, v_closest
+    from guesses where player_id = p_player_id;
+  if v_count = 0 then return; end if;
+  insert into game_results(user_id, room_id, game_seq, room_code, points, photos_guessed, best_points, closest_km, finished_at)
+  values (v_uid, v_room, coalesce(v_seq,0), v_code, v_points, v_count, v_best, v_closest, now())
+  on conflict (user_id, room_id, game_seq) do update
+    set points = excluded.points, photos_guessed = excluded.photos_guessed,
+        best_points = excluded.best_points, closest_km = excluded.closest_km, finished_at = now();
+end; $$;
+revoke all on function public.record_game(uuid) from public;
+grant execute on function public.record_game(uuid) to anon, authenticated;
+
+-- The caller's recent games (no truth coordinates — points/distance/counts only).
+create or replace function public.get_my_history()
+returns table(room_code text, game_seq int, points int, photos_guessed int,
+              best_points int, closest_km double precision, finished_at timestamptz)
+language sql security definer set search_path = public as $$
+  select room_code, game_seq, points, photos_guessed, best_points, closest_km, finished_at
+  from public.game_results where user_id = auth.uid()
+  order by finished_at desc limit 50;
+$$;
+revoke all on function public.get_my_history() from public;
+grant execute on function public.get_my_history() to anon, authenticated;
+
+-- The caller's lifetime aggregates.
+create or replace function public.get_my_stats()
+returns table(games int, total_points bigint, avg_points int, best_game int,
+              total_photos bigint, best_points int, closest_km double precision)
+language sql security definer set search_path = public as $$
+  select count(*)::int, coalesce(sum(points),0)::bigint, coalesce(round(avg(points)),0)::int,
+         coalesce(max(points),0)::int, coalesce(sum(photos_guessed),0)::bigint,
+         coalesce(max(best_points),0)::int, min(closest_km)
+  from public.game_results where user_id = auth.uid();
+$$;
+revoke all on function public.get_my_stats() from public;
+grant execute on function public.get_my_stats() to anon, authenticated;
