@@ -377,7 +377,7 @@
         <label>Photos each player adds</label>
         <div class="stepper">
           <button type="button" class="step-btn" id="ppp-dec" aria-label="Fewer photos">–</button>
-          <input id="ppp" type="number" min="1" max="10" value="3" inputmode="numeric" />
+          <input id="ppp" type="number" min="1" max="5" value="3" inputmode="numeric" />
           <button type="button" class="step-btn" id="ppp-inc" aria-label="More photos">+</button>
         </div>
       </div>
@@ -1531,7 +1531,7 @@ ensureAuth().then(() => { refreshAccount(); if (session && session.roomId) enter
 
   // ── Photo-count steppers (write to #ppp; the game module reads its .value) ──
   const ppp = $('ppp');
-  const stepPPP = d => { let v = (parseInt(ppp.value, 10) || 3) + d; ppp.value = Math.max(1, Math.min(10, v)); };
+  const stepPPP = d => { let v = (parseInt(ppp.value, 10) || 3) + d; ppp.value = Math.max(1, Math.min(5, v)); };
   $('ppp-dec') && $('ppp-dec').addEventListener('click', () => stepPPP(-1));
   $('ppp-inc') && $('ppp-inc').addEventListener('click', () => stepPPP(1));
 

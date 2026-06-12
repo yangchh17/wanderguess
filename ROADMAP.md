@@ -123,8 +123,14 @@ touches the formula.
 - Edge case: player joins a room with an empty library → lobby shows a
   clear "add photos to your library first" prompt with a link to the
   Library tab, not a dead end.
-- Cap ~10 photos/user (free-tier storage). Guest libraries accrue under
+- Cap ~15 photos/user (free-tier storage). Guest libraries accrue under
   the anon uid and carry over on account upgrade (same as history).
+- Max photos per player per game: 5 (matches library cap sanity; host
+  stepper now capped at 5 in UI).
+- Lobby keeps an "Add photo" button — uploads into the library AND selects
+  it for the current room in one step. Same DB design, no second code path.
+  The Library tab is for deliberate pre-game building; the lobby button
+  keeps the spontaneous party flow alive.
 - ⚠️ **NOT YET TESTED end-to-end on a real device.** The GPS extraction
   logic (Files path → HEIC with intact EXIF → exifr.js reads lat/lng →
   uploaded) is in the code and the `gps-check.html` diagnostic tests the
@@ -160,8 +166,18 @@ touches the formula.
 ---
 
 ## 🔄 Parallel track — Sync mode (live "race the same photo on a clock")
-Default stays async; sync is opt-in. The marquee competitive mode.
-Orthogonal to the staged plan above — can land between any stages.
+Default stays async; sync is opt-in. The marquee competitive feature.
+Target: land between Stage 1 and Stage 2 — after the library flow is
+solid but before scoped scoring adds more complexity.
+
+**What sync needs (not yet built):**
+- `rooms.mode` ('async'|'sync'), `photo_order uuid[]`, `round_idx`,
+  `round_started_at`, `round_ends_at` on the room (or a `rounds` table).
+- `advance_round(room, from_idx)` RPC, idempotent on `from_idx`.
+- Client countdown from `round_ends_at`; all players see the same photo
+  at the same time; reveal to everyone on round end.
+- 1s watchdog polling triggers `advance_round` when due.
+- Later: Supabase Realtime for instant transitions instead of polling.
 
 **S1 — Server round engine**
 - Room mode: `rooms.mode text default 'async'` ('async' | 'sync').
