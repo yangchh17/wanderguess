@@ -99,13 +99,18 @@ only; scoring scope is server-derived (reverse geocode) — player input never
 touches the formula.
 
 ### Stage 0 — UI shell: bottom tab bar
-- Tabs: **Play · Library · Profile** (Explore appears in Stage 3).
-- Play = home (create/join/rejoin) + lobby once in a room; in-game badge.
-- Profile absorbs the account card, stats/history, suggestion box.
+- ✅ **Module split done** (2026-06-13): extracted `js/core.js` (shared `$`, `show`,
+  `sb`, `ensureAuth`, `escapeHtml` — singleton via consistent `?v=1` specifier),
+  `js/account.js` (account + stats/history), `js/feedback.js` (suggestion box),
+  `js/ui.js` (toast, copy/share, steppers, time pills, score-pop, help). The inline
+  module in `index.html` is now just the game core (lobby/upload/play) and imports
+  from `core.js`. Verified end-to-end (create room, roster, leave, My-stats, back).
+  Sign-in/out now do `location.reload()` for a clean re-init (no game-module coupling).
+- ✅ ppp cap aligned to 5 in the create handler (was 10; UI already capped).
+- ⬜ Tabs: **Play · Library · Profile** (Explore appears in Stage 3).
+- ⬜ Play = home (create/join/rejoin) + lobby once in a room; in-game badge.
+- ⬜ Profile absorbs the account card, stats/history, suggestion box.
 - Full-screen overlays (play/results/pin/help) unchanged; they render above.
-- Recommended: split index.html's module script into js/*.js ES modules
-  (no build step needed) — 1,500+ lines is merge-conflict bait with two
-  active sessions.
 
 ### Stage 1 — Personal library (fixes iOS for good)
 - `library_photos`: owned by auth.uid(); truth columns locked exactly like

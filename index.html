@@ -600,29 +600,9 @@
 </div>
 
 <script type="module">
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { makeDisplaySource, isHeic } from './shared/media.js?v=2';
 import { scoreGuess, formatKm } from './shared/geo.js?v=2';
-
-const $ = id => document.getElementById(id);
-const show = s => document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === s));
-
-if (!window.SUPA || window.SUPA.url.includes('YOUR-PROJECT')) {
-  $('home-msg').className = 'msg err';
-  $('home-msg').textContent = 'Supabase not configured — copy config.example.js to config.js and fill in your project URL + anon key.';
-}
-const sb = createClient(window.SUPA.url, window.SUPA.anonKey);
-
-// Silent anonymous auth: gives every client a real identity (auth.uid()) so the
-// server can't be told "I'm player X" — it knows. Session persists across reloads.
-let _authReady = null;
-function ensureAuth(){
-  if (!_authReady) _authReady = (async () => {
-    const { data } = await sb.auth.getSession();
-    if (!data.session) { const r = await sb.auth.signInAnonymously(); if (r.error) console.error('anon auth failed', r.error); }
-  })();
-  return _authReady;
-}
+import { $, show, sb, ensureAuth, escapeHtml } from './js/core.js?v=1';
 
 // ---- identity (per browser, persisted) ----
 const LS = 'geoguessur.session';
@@ -663,7 +643,7 @@ $('btn-create').addEventListener('click', async () => {
   $('btn-create').disabled = true;
   try {
     await ensureAuth();
-    const ppp = Math.max(1, Math.min(10, parseInt($('ppp').value, 10) || 3));
+    const ppp = Math.max(1, Math.min(5, parseInt($('ppp').value, 10) || 3));
     const sppRaw = $('spp').value;
     const spp = sppRaw === '' ? null : parseInt(sppRaw, 10);   // null = no limit
     let room = null;
@@ -1387,185 +1367,17 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ──────────────── Account (anonymous → permanent) + stats / history ────────────────
-// Upgrading the anonymous user keeps the same auth.uid(), so all history carries over.
-let acctMode = 'create';   // 'create' | 'signin'
-async function refreshAccount(){
-  const { data: { user } } = await sb.auth.getUser();
-  const signedIn = !!(user && !user.is_anonymous && user.email);
-  $('acct-status').innerHTML = signedIn
-    ? `Signed in as <b>${escapeHtml(user.email)}</b>`
-    : `Playing as <b>guest</b> — stats save on this device; create an account to keep them anywhere.`;
-  $('acct-guest').style.display = signedIn ? 'none' : '';
-  $('btn-acct-signout').style.display = signedIn ? '' : 'none';
-  $('acct-form').style.display = 'none';
-}
-function acctMsg(t, err){ $('acct-msg').className = 'msg ' + (err ? 'err' : (t ? 'ok' : '')); $('acct-msg').textContent = t || ''; }
-function openAcctForm(mode){
-  acctMode = mode;
-  $('acct-form').style.display = '';
-  $('acct-submit').textContent = mode === 'signin' ? 'Sign in' : 'Create account';
-  $('acct-pass').setAttribute('autocomplete', mode === 'signin' ? 'current-password' : 'new-password');
-  acctMsg(''); $('acct-email').focus();
-}
-$('btn-acct-create').addEventListener('click', () => openAcctForm('create'));
-$('btn-acct-signin').addEventListener('click', () => openAcctForm('signin'));
-$('acct-cancel').addEventListener('click', () => { $('acct-form').style.display = 'none'; acctMsg(''); });
-$('acct-submit').addEventListener('click', async () => {
-  const email = $('acct-email').value.trim(), pass = $('acct-pass').value;
-  if (!email || !pass) return acctMsg('Enter an email and password.', true);
-  if (acctMode === 'create' && pass.length < 8) return acctMsg('Password must be at least 8 characters.', true);
-  $('acct-submit').disabled = true;
-  try {
-    if (acctMode === 'signin') {
-      const { error } = await sb.auth.signInWithPassword({ email, password: pass });
-      if (error) throw error;
-      localStorage.removeItem(LS); session = null;          // a different identity → leave the guest room
-      acctMsg('Signed in ✓'); await refreshAccount(); refreshHome();
-    } else {
-      const { data, error } = await sb.auth.updateUser({ email, password: pass });   // upgrade in place
-      if (error) throw error;
-      if (data.user && data.user.email) acctMsg('Account created ✓ — your history is saved.');
-      else acctMsg('Almost there — check your email to confirm your account.');
-      await refreshAccount();
-    }
-    $('acct-form').style.display = 'none';
-  } catch (e) { acctMsg('Error: ' + (e.message || e), true); }
-  finally { $('acct-submit').disabled = false; }
-});
-$('btn-acct-signout').addEventListener('click', async () => {
-  await sb.auth.signOut();
-  await sb.auth.signInAnonymously();        // drop back to a fresh guest so play still works
-  localStorage.removeItem(LS); session = null;
-  acctMsg('Signed out.'); await refreshAccount(); refreshHome();
-});
-
-// ── Feedback (write-only suggestion box; server rate-limits per uid) ──
-$('fb-toggle').addEventListener('click', () => {
-  const c = $('fb-card'); const open = c.style.display === 'none';
-  c.style.display = open ? '' : 'none';
-  if (open) $('fb-text').focus();
-});
-$('fb-cancel').addEventListener('click', () => { $('fb-card').style.display = 'none'; $('fb-msg').textContent = ''; });
-$('fb-send').addEventListener('click', async () => {
-  const body = $('fb-text').value.trim(), m = $('fb-msg');
-  if (body.length < 3) { m.className = 'msg err'; m.textContent = 'Tell us a bit more first.'; return; }
-  $('fb-send').disabled = true;
-  try {
-    await ensureAuth();
-    const { error } = await sb.rpc('submit_feedback', { p_body: body });
-    if (error) throw error;
-    $('fb-text').value = '';
-    m.className = 'msg ok'; m.textContent = 'Thanks — suggestion received ✓';
-    setTimeout(() => { $('fb-card').style.display = 'none'; m.textContent = ''; }, 1600);
-  } catch (e) { m.className = 'msg err'; m.textContent = 'Error: ' + (e.message || e); }
-  finally { $('fb-send').disabled = false; }
-});
-
-async function openProfile(){
-  show('s-profile');
-  $('stats-grid').innerHTML = '<span class="mut">Loading…</span>';
-  $('history-list').innerHTML = '<span class="mut">Loading…</span>';
-  $('prof-closest').textContent = '';
-  const [{ data: s }, { data: h }] = await Promise.all([ sb.rpc('get_my_stats'), sb.rpc('get_my_history') ]);
-  const st = (s && s[0]) || {};
-  const tiles = [
-    ['Games', (st.games || 0).toLocaleString()],
-    ['Total pts', (st.total_points || 0).toLocaleString()],
-    ['Avg / game', (st.avg_points || 0).toLocaleString()],
-    ['Best game', (st.best_game || 0).toLocaleString()],
-    ['Photos', (st.total_photos || 0).toLocaleString()],
-    ['Best photo', (st.best_points || 0).toLocaleString()],
-  ];
-  $('stats-grid').innerHTML = tiles.map(([k, v]) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
-  $('prof-closest').textContent = (st.closest_km != null) ? `Closest guess ever: ${formatKm(st.closest_km)}.` : '';
-  const rows = h || [];
-  $('history-list').innerHTML = rows.length ? rows.map(r => {
-    const d = new Date(r.finished_at), ds = isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    return `<div class="hrow"><span class="hcode">${escapeHtml(r.room_code || '—')}</span>` +
-      `<span class="hmeta">${ds} · ${r.photos_guessed} photo${r.photos_guessed === 1 ? '' : 's'}</span>` +
-      `<span class="hpts">${(r.points || 0).toLocaleString()}</span></div>`;
-  }).join('') : '<span class="mut">No games yet — play a round to start your history.</span>';
-}
-$('btn-stats').addEventListener('click', openProfile);
-$('prof-back').addEventListener('click', () => { show('s-home'); refreshHome(); });
-
-function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
 // resume an existing session if present (after auth is ready); else offer rejoin
+// (account/profile, feedback, and UI enhancements live in js/*.js modules)
 refreshHome();
-ensureAuth().then(() => { refreshAccount(); if (session && session.roomId) enterLobby(); else refreshHome(); });
+ensureAuth().then(() => { if (session && session.roomId) enterLobby(); else refreshHome(); });
 </script>
 
-<!-- UI enhancements (decoupled from the game module: reads the DOM only) -->
-<script>
-(function(){
-  const $ = id => document.getElementById(id);
-
-  // ── Toast ──
-  const tc = document.createElement('div'); tc.className = 'toast'; document.body.appendChild(tc);
-  let tt; const toast = (msg, type) => {
-    tc.textContent = msg; tc.className = 'toast show ' + (type || '');
-    clearTimeout(tt); tt = setTimeout(() => { tc.className = 'toast ' + (type || ''); }, 1900);
-  };
-
-  const roomCode = () => ($('room-code') ? $('room-code').textContent : '').replace(/[^A-Z0-9]/gi, '');
-
-  // ── Copy code ──
-  $('btn-copy') && $('btn-copy').addEventListener('click', async () => {
-    const c = roomCode(); if (!c) return;
-    try { await navigator.clipboard.writeText(c); toast('Code copied', 'good'); }
-    catch { toast('Code: ' + c); }
-  });
-
-  // ── Share invite ──
-  $('btn-share') && $('btn-share').addEventListener('click', async () => {
-    const c = roomCode(); if (!c) return;
-    const url = location.origin + location.pathname;
-    const text = `Join my Wanderguess room — code ${c}`;
-    if (navigator.share) { try { await navigator.share({ title: 'Wanderguess', text, url }); } catch {} }
-    else { try { await navigator.clipboard.writeText(`${text}\n${url}`); toast('Invite copied', 'good'); }
-           catch { toast('Code: ' + c); } }
-  });
-
-  // ── Photo-count steppers (write to #ppp; the game module reads its .value) ──
-  const ppp = $('ppp');
-  const stepPPP = d => { let v = (parseInt(ppp.value, 10) || 3) + d; ppp.value = Math.max(1, Math.min(5, v)); };
-  $('ppp-dec') && $('ppp-dec').addEventListener('click', () => stepPPP(-1));
-  $('ppp-inc') && $('ppp-inc').addEventListener('click', () => stepPPP(1));
-
-  // ── Time-per-photo segmented control (writes to hidden #spp) ──
-  const seg = $('spp-seg');
-  seg && seg.addEventListener('click', e => {
-    const b = e.target.closest('.seg'); if (!b) return;
-    seg.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === b));
-    $('spp').value = b.dataset.val;
-  });
-
-  // ── Score / points "pop" on change (observes text, no module changes) ──
-  const bump = id => {
-    const el = $(id); if (!el) return;
-    new MutationObserver(() => { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); })
-      .observe(el, { childList: true, characterData: true, subtree: true });
-  };
-  bump('g-score');
-
-  // ── Help / how-to-play overlay ──
-  (function(){
-    const overlay = $('help-overlay');
-    const openHelp  = () => overlay.classList.add('on');
-    const closeHelp = () => overlay.classList.remove('on');
-    $('btn-help').addEventListener('click', openHelp);
-    $('help-close-btn').addEventListener('click', closeHelp);
-    $('help-got-it').addEventListener('click', closeHelp);
-    overlay.addEventListener('click', e => { if (e.target === overlay) closeHelp(); });
-    // Auto-show once for first-time visitors
-    if (!localStorage.getItem('wg.seen-help')) {
-      openHelp();
-      localStorage.setItem('wg.seen-help', '1');
-    }
-  })();
-})();
-</script>
+<!-- Feature modules (split out so parallel sessions don't collide on one file).
+     The inline module above is the game core; these are independent features.
+     All share js/core.js (a singleton — same ?v=1 specifier everywhere). -->
+<script type="module" src="./js/account.js?v=1"></script>
+<script type="module" src="./js/feedback.js?v=1"></script>
+<script type="module" src="./js/ui.js?v=1"></script>
 </body>
 </html>
