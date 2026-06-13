@@ -42,6 +42,21 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-13 (later 2) — local session (Claude)
+- **Guided lobby shipped.** Reordered the lobby (invite → add photos → ready/start →
+  players → leaderboard) and added a **state-driven "next step" banner** (`#lobby-step`,
+  set in `refreshLobby`): 1 Add photos → 2 Ready → 3 Start/waiting → ▶ Game on. All IDs
+  preserved; verified the banner advances through each state.
+- **Competitive note:** owner says **GeoGuess.com** is closest to the vision. It's
+  user-photo party rooms with **real-time rounds** — you watch friends' guess markers
+  appear live on the map, round by round (scoring ~50 km→5000 out to ~2000 km, i.e.
+  scoped). So the **headline gap is live/SYNC multiplayer** (we're async). That's the
+  big next feature — see ROADMAP "Parallel track — Sync mode". Strong candidate for the
+  next major build; live guess-markers is the signature feel to copy.
+- **Next:** likely start **sync mode** (server round engine: `rooms.mode`, round
+  timestamps, idempotent `advance_round`) per the roadmap — OR Stage 1 library. Owner
+  away ~2 days; continuing autonomously.
+
 ### 2026-06-13 (later) — local session (Claude)
 - **Stage 0 bottom tab bar shipped** (Play · Profile). New file **`js/nav.js`** owns
   it; the active indicator auto-syncs to the visible `.screen` via a MutationObserver.

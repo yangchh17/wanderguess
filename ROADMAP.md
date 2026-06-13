@@ -147,9 +147,11 @@ touches the formula.
 - ✅ **Home decluttered:** Play = just name → Create / Join (+ rejoin). The account
   card, stats/history, and suggestion box all moved into the **Profile** tab. This is
   the "simple & guided" win — Home is now 3 cards, not 6.
+- ✅ **Guided lobby shipped** (2026-06-13): reordered to the natural flow (invite →
+  add photos → ready/start → players → leaderboard) with a **state-driven "next step"
+  banner** (1 Add photos → 2 Ready → 3 Start / waiting / Game on) driven by
+  `refreshLobby`. Verified the banner advances through each state.
 - ⬜ In-game badge on the Play tab while a round is active.
-- ⬜ **Guided lobby** (next): the lobby is still a 5-card scroll — turn it into a
-  clear next-step flow (share → add photos → ready → start) with one prominent CTA.
 - Full-screen overlays (play/results/pin/help) unchanged; they render above the bar.
 
 ### Stage 1 — Personal library (fixes iOS for good)

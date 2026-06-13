@@ -325,6 +325,12 @@
     #tabbar .tab .ti{font-size:1.3rem;line-height:1;filter:grayscale(.4);opacity:.7;transition:.15s}
     #tabbar .tab.on{color:var(--primary-2)}
     #tabbar .tab.on .ti{filter:none;opacity:1}
+    /* guided lobby next-step banner */
+    .lobby-step{display:flex;align-items:center;gap:11px;background:rgba(91,156,255,.1);
+      border:1px solid rgba(91,156,255,.3);border-radius:var(--r-lg);padding:12px 15px;
+      font-size:.92rem;font-weight:500;color:#cfe0ff}
+    .lobby-step .num{flex:0 0 auto;width:25px;height:25px;border-radius:50%;background:var(--grad);
+      color:#04182e;font-weight:700;font-size:.82rem;display:grid;place-items:center;font-family:'Space Grotesk',sans-serif}
   </style>
 </head>
 <body>
@@ -405,9 +411,9 @@
       <button id="btn-leave" type="button" class="leave">Leave room</button>
     </div>
 
-    <div class="card">
-      <div class="rowhead"><h2>Players</h2><span class="mut" id="player-count"></span></div>
-      <div id="players" class="players"></div>
+    <div class="lobby-step" id="lobby-step">
+      <span class="num" id="lobby-step-num">1</span>
+      <span id="lobby-step-text">Add your photos to the pool below.</span>
     </div>
 
     <div class="card">
@@ -435,6 +441,11 @@
       <span class="mut" id="ready-line"></span>
       <button id="btn-hoststart" class="btn btn-primary" style="display:none" disabled>Start game</button>
       <button id="btn-start" class="btn btn-good" style="display:none" disabled>Start guessing</button>
+    </div>
+
+    <div class="card">
+      <div class="rowhead"><h2>Players</h2><span class="mut" id="player-count"></span></div>
+      <div id="players" class="players"></div>
     </div>
 
     <div class="card">
@@ -839,6 +850,25 @@ async function refreshLobby(){
   const bs = $('btn-start');
   bs.style.display = status === 'playing' ? '' : 'none';
   bs.disabled = !(status === 'playing' && togo.length > 0);
+
+  // Guided "what to do next" banner — one clear instruction for the current state.
+  let stepN = 1, stepT = `Add your photos, then add them to the pool.`;
+  if (status === 'playing') {
+    if (togo.length > 0) { stepN = '▶'; stepT = `Game on — tap "Start guessing".`; }
+    else { stepN = '✓'; stepT = `You've guessed every photo — check the leaderboard.`; }
+  } else if (myPooled < 1) {
+    stepN = 1; stepT = `Add your photos, then add them to the pool.`;
+  } else if (!myReady) {
+    stepN = 2; stepT = `Tap "I'm ready" when you're set.`;
+  } else if (amHost) {
+    stepN = 3; stepT = (onlineTotal > 0 && onlineReady === onlineTotal)
+      ? `Everyone's ready — start the game!`
+      : `Waiting for players to ready up (${onlineReady}/${onlineTotal}).`;
+  } else {
+    stepN = 3; stepT = `You're ready — waiting for the host to start.`;
+  }
+  $('lobby-step-num').textContent = stepN;
+  $('lobby-step-text').textContent = stepT;
 
   // Host can reset for a new game (rematch)
   $('btn-newgame').style.display = amHost ? '' : 'none';
