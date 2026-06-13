@@ -42,6 +42,24 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-13 (later) — local session (Claude)
+- **Stage 0 bottom tab bar shipped** (Play · Profile). New file **`js/nav.js`** owns
+  it; the active indicator auto-syncs to the visible `.screen` via a MutationObserver.
+- **Home decluttered:** the account card + suggestion box moved OUT of `s-home` and
+  INTO `s-profile` (the Profile tab). Home is now just name → Create / Join (+ rejoin).
+  ⚠️ If you edit account/stats/feedback markup, it now lives in the **`s-profile`**
+  section, not `s-home`.
+- `js/account.js`: removed the `btn-stats`/`prof-back` buttons (the tab bar navigates
+  now); profile opens via a `window` event `wg:open-profile` that nav.js dispatches.
+- **Competitive research** done — see the new "Competitive landscape & positioning"
+  section in `ROADMAP.md`. TL;DR: concept isn't novel (loveguessr/PhotoGuessr, Whereez,
+  GeoGuess do it); our wedge is **group/party shared-pool multiplayer** — frame future
+  social/library work around *groups*, not solo memories.
+- **Next:** the **guided lobby** (still a 5-card scroll → make it a clear next-step
+  flow), then Stage 1 (personal library). The owner is away ~2 days; this session is
+  continuing autonomously.
+- **Don't break:** single-core-instance rule (`core.js?v=1` everywhere); trust boundary.
+
 ### 2026-06-13 — local session (Claude) — commit 6d85c88
 - **Did the module split** (Stage 0 groundwork from the committed plan): extracted
   `js/core.js`, `js/account.js`, `js/feedback.js`, `js/ui.js` from `index.html`'s

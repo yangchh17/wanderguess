@@ -82,7 +82,7 @@ async function openProfile(){
       `<span class="hpts">${(r.points || 0).toLocaleString()}</span></div>`;
   }).join('') : '<span class="mut">No games yet — play a round to start your history.</span>';
 }
-$('btn-stats').addEventListener('click', openProfile);
-$('prof-back').addEventListener('click', () => show('s-home'));
+// The bottom tab bar (js/nav.js) requests the profile view via this event.
+window.addEventListener('wg:open-profile', () => { refreshAccount(); openProfile(); });
 
 ensureAuth().then(refreshAccount);

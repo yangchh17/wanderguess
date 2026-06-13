@@ -8,6 +8,39 @@ Stack: static client (Cloudflare Workers assets) + Supabase (Postgres + Storage 
 
 ---
 
+## 🧭 Competitive landscape & positioning (researched 2026-06-13)
+The "upload your own photos → friends guess where" concept is **not novel** — several
+products exist. Honest read:
+- **PhotoGuessr / loveguessr.com** (web) — the closest: own photos, pin location on a
+  map, **+ guess the date** (TimeGuessr-style, 10k pts), share-by-link, free, no
+  signup. Single-creator model (you upload, friends guess *your* memories).
+- **Whereez** (iOS) — own photos, **blurred** for mystery, async/feed, distance+time
+  scoring, social-network features (friends, profiles). New/small (few ratings).
+- **GeoGuess.com** (web) — upload photos + multiplayer (details thin).
+- Adjacent: **TimeGuessr / WhenTaken / WhereTaken** (curated photos, place+year, viral
+  daily, single-player); **Photo Roulette / Buddies / Throwbacks** (own photos but
+  guess *whose*, not *where* — big, established party apps); **GeoGuessr** (Street
+  View, the giant).
+
+**Where Wanderguess is differentiated (lean into this):**
+- **Shared-pool party multiplayer** — *everyone in the room contributes photos to one
+  pool and everyone guesses everyone's.* Competitors are single-creator (one uploader,
+  others guess). The "group trip → combine everyone's photos → who actually knows where
+  you all were" occasion is the genuine wedge.
+- Rooms + presence + host-start + per-photo timer + rematch; accounts + history/stats;
+  a real security/trust model; GeoGuessr-style zoom/pan inspection.
+
+**Table-stakes we already have:** own photos, map pin, share link, no signup, free, web.
+**Gaps worth considering:** date guessing (cheap depth, others have it); a mobile
+app + push (Whereez/Photo Roulette have it); photo-blur as an alt reveal.
+
+**Verdict:** Worth continuing — as a learning/portfolio project unequivocally, and as a
+product *if* it commits to the group/party-pool angle rather than re-cloning the
+single-creator memory game loveguessr already nails. Keep the committed plan, but frame
+Stage 1 (library) and any social features around *groups*, not solo memories.
+
+---
+
 ## ✅ Done (deployed)
 - Lobby: create / join by code; rejoin reuses identity (rename supported).
 - Presence: heartbeat + server-computed `online` (roster view) — Safari-safe.
@@ -107,10 +140,17 @@ touches the formula.
   from `core.js`. Verified end-to-end (create room, roster, leave, My-stats, back).
   Sign-in/out now do `location.reload()` for a clean re-init (no game-module coupling).
 - ✅ ppp cap aligned to 5 in the create handler (was 10; UI already capped).
-- ⬜ Tabs: **Play · Library · Profile** (Explore appears in Stage 3).
-- ⬜ Play = home (create/join/rejoin) + lobby once in a room; in-game badge.
-- ⬜ Profile absorbs the account card, stats/history, suggestion box.
-- Full-screen overlays (play/results/pin/help) unchanged; they render above.
+- ✅ **Bottom tab bar shipped** (2026-06-13): **Play · Profile** (Library arrives in
+  Stage 1, Explore in Stage 3). `js/nav.js` switches surfaces; the active indicator
+  auto-syncs to the visible `.screen` (a MutationObserver), so it stays correct even
+  when the game module navigates on its own.
+- ✅ **Home decluttered:** Play = just name → Create / Join (+ rejoin). The account
+  card, stats/history, and suggestion box all moved into the **Profile** tab. This is
+  the "simple & guided" win — Home is now 3 cards, not 6.
+- ⬜ In-game badge on the Play tab while a round is active.
+- ⬜ **Guided lobby** (next): the lobby is still a 5-card scroll — turn it into a
+  clear next-step flow (share → add photos → ready → start) with one prominent CTA.
+- Full-screen overlays (play/results/pin/help) unchanged; they render above the bar.
 
 ### Stage 1 — Personal library (fixes iOS for good)
 - `library_photos`: owned by auth.uid(); truth columns locked exactly like
