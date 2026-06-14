@@ -508,3 +508,171 @@ begin
 end; $$;
 revoke all on function public.submit_feedback(text) from public;
 grant execute on function public.submit_feedback(text) to anon, authenticated;
+
+
+-- ============================================================
+--  SYNC MODE — live, server-clocked rounds (S1: round engine)
+--  Async stays the default. In sync, everyone guesses the SAME photo on a shared
+--  clock; round state lives on the room. Truth is exposed (to all) only at reveal;
+--  submit_guess enforces the round window so a closed/reveal round can't be gamed.
+-- ============================================================
+alter table public.rooms
+  add column if not exists mode         text not null default 'async',  -- 'async' | 'sync'
+  add column if not exists photo_order  uuid[],                          -- shuffled pool (sync)
+  add column if not exists round_idx    int not null default 0,          -- 0-based
+  add column if not exists round_phase  text,                            -- 'guessing' | 'reveal' | null
+  add column if not exists round_ends_at timestamptz;                    -- server deadline for the phase
+
+-- start_game: async unchanged; sync builds a shuffled order and opens round 0.
+create or replace function public.start_game(p_player_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_host uuid; v_mode text; v_secs int; v_order uuid[];
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can start the game'; end if;
+  select mode, coalesce(seconds_per_photo, 60) into v_mode, v_secs from rooms where id = v_room;
+  if v_mode = 'sync' then
+    select array_agg(id order by random()) into v_order
+      from photos where room_id = v_room and in_pool = true and status = 'ready';
+    if v_order is null or array_length(v_order,1) = 0 then raise exception 'no photos in the pool'; end if;
+    update rooms set status='playing', round_idx=0, round_phase='guessing',
+           photo_order=v_order, round_ends_at = now() + make_interval(secs => v_secs)
+      where id = v_room and status = 'lobby';
+  else
+    update rooms set status='playing' where id = v_room and status = 'lobby';
+  end if;
+  return (select status from rooms where id = v_room);
+end; $$;
+revoke all on function public.start_game(uuid) from public;
+grant execute on function public.start_game(uuid) to anon, authenticated;
+
+-- advance_round: idempotent state machine (guarded by from_idx/from_phase). Any room
+-- member can call it (watchdog). guessing -> reveal on timeout OR when every ONLINE
+-- player has guessed (>=1 online required); reveal -> next round after a short window;
+-- last round -> finished.
+create or replace function public.advance_round(p_room uuid, p_from_idx int, p_from_phase text)
+returns table(round_idx int, round_phase text, round_ends_at timestamptz, status text)
+language plpgsql security definer set search_path = public as $$
+declare v_secs int; v_len int; v_now timestamptz := now(); v_ends timestamptz;
+        v_idx int; v_phase text; v_status text; v_photo uuid;
+        v_online int; v_pending int; v_all boolean;
+        c_reveal constant int := 5;
+begin
+  if not exists (select 1 from players where room_id = p_room and user_id = auth.uid()) then
+    raise exception 'not a member of this room';
+  end if;
+  select r.round_idx, r.round_phase, r.round_ends_at, r.status, coalesce(r.seconds_per_photo,60),
+         coalesce(array_length(r.photo_order,1),0), r.photo_order[r.round_idx+1]
+    into v_idx, v_phase, v_ends, v_status, v_secs, v_len, v_photo
+    from rooms r where r.id = p_room and r.mode = 'sync';
+  if v_status is null then raise exception 'room not found or not in sync mode'; end if;
+
+  if v_status = 'playing' and v_idx = p_from_idx and v_phase is not distinct from p_from_phase then
+    if v_phase = 'guessing' then
+      select count(*),
+             count(*) filter (where not exists (
+               select 1 from guesses g where g.player_id = p.id and g.photo_id = v_photo))
+        into v_online, v_pending
+        from players p
+        where p.room_id = p_room and p.last_seen > now() - interval '15 seconds';
+      v_all := (v_online > 0 and v_pending = 0);
+      if v_now >= v_ends or v_all then
+        update rooms r set round_phase='reveal', round_ends_at = v_now + make_interval(secs => c_reveal)
+          where r.id = p_room and r.round_idx = p_from_idx and r.round_phase = 'guessing';
+      end if;
+    elsif v_phase = 'reveal' and v_now >= v_ends then
+      if v_idx + 1 < v_len then
+        update rooms r set round_idx = v_idx + 1, round_phase='guessing',
+               round_ends_at = v_now + make_interval(secs => v_secs)
+          where r.id = p_room and r.round_idx = p_from_idx and r.round_phase = 'reveal';
+      else
+        update rooms r set status='finished', round_phase=null
+          where r.id = p_room and r.round_idx = p_from_idx and r.round_phase = 'reveal';
+      end if;
+    end if;
+  end if;
+  select r.round_idx, r.round_phase, r.round_ends_at, r.status
+    into v_idx, v_phase, v_ends, v_status from rooms r where r.id = p_room;
+  return query select v_idx, v_phase, v_ends, v_status;
+end; $$;
+revoke all on function public.advance_round(uuid,int,text) from public;
+grant execute on function public.advance_round(uuid,int,text) to anon, authenticated;
+
+-- get_round_state: current photo for everyone; truth ONLY during the reveal phase.
+create or replace function public.get_round_state(p_room uuid)
+returns table(mode text, status text, round_idx int, round_phase text, round_ends_at timestamptz,
+              total int, photo_id uuid, display_url text,
+              truth_lat double precision, truth_lng double precision)
+language plpgsql security definer set search_path = public as $$
+declare v_photo uuid;
+begin
+  if not exists (select 1 from players where room_id = p_room and user_id = auth.uid()) then
+    raise exception 'not a member of this room';
+  end if;
+  select r.photo_order[r.round_idx+1] into v_photo from rooms r where r.id = p_room;
+  return query
+    select r.mode, r.status, r.round_idx, r.round_phase, r.round_ends_at,
+           coalesce(array_length(r.photo_order,1),0), v_photo, ph.display_url,
+           case when r.round_phase='reveal' then ph.truth_lat else null end,
+           case when r.round_phase='reveal' then ph.truth_lng else null end
+    from rooms r left join photos ph on ph.id = v_photo
+    where r.id = p_room;
+end; $$;
+revoke all on function public.get_round_state(uuid) from public;
+grant execute on function public.get_round_state(uuid) to anon, authenticated;
+
+-- get_round_guesses: others' markers for the current photo — only after YOU have guessed
+-- it (or during reveal), so nobody can copy. Positions + names only, no truth.
+create or replace function public.get_round_guesses(p_room uuid)
+returns table(player_id uuid, name text, guess_lat double precision, guess_lng double precision)
+language plpgsql security definer set search_path = public as $$
+declare v_caller uuid; v_phase text; v_photo uuid; v_guessed boolean;
+begin
+  select id into v_caller from players where room_id = p_room and user_id = auth.uid() limit 1;
+  if v_caller is null then raise exception 'not a member of this room'; end if;
+  select r.round_phase, r.photo_order[r.round_idx+1] into v_phase, v_photo from rooms r where r.id = p_room and r.mode='sync';
+  if v_photo is null then return; end if;
+  select exists(select 1 from guesses gg where gg.photo_id = v_photo and gg.player_id = v_caller) into v_guessed;
+  if not (v_guessed or v_phase = 'reveal') then return; end if;
+  return query
+    select g.player_id, p.name, g.guess_lat, g.guess_lng
+    from guesses g join players p on p.id = g.player_id
+    where g.photo_id = v_photo;
+end; $$;
+revoke all on function public.get_round_guesses(uuid) from public;
+grant execute on function public.get_round_guesses(uuid) to anon, authenticated;
+
+-- submit_guess: sync guard added (only the current round's photo, only during the
+-- guessing window). Async path unchanged. (Supersedes the Stage 2 version above.)
+create or replace function public.submit_guess(p_photo_id uuid, p_player_id uuid,
+  p_guess_lat double precision, p_guess_lng double precision)
+returns table(truth_lat double precision, truth_lng double precision, distance_km double precision, points integer)
+language plpgsql security definer set search_path = public as $$
+declare v_lat double precision; v_lng double precision; v_room uuid; v_dist double precision; v_pts integer;
+        v_mode text; v_phase text; v_ends timestamptz; v_cur uuid;
+begin
+  select ph.truth_lat, ph.truth_lng, ph.room_id into v_lat, v_lng, v_room
+  from photos ph where ph.id = p_photo_id and ph.status = 'ready';
+  if v_lat is null then raise exception 'photo not available'; end if;
+  if not exists (select 1 from players pl where pl.id = p_player_id and pl.room_id = v_room and pl.user_id = auth.uid()) then
+    raise exception 'not your player for this room';
+  end if;
+  select mode, round_phase, round_ends_at, photo_order[round_idx+1]
+    into v_mode, v_phase, v_ends, v_cur from rooms where id = v_room;
+  if v_mode = 'sync' then
+    if v_phase is distinct from 'guessing' or now() > v_ends then raise exception 'round closed'; end if;
+    if p_photo_id <> v_cur then raise exception 'not the current round photo'; end if;
+  end if;
+  v_dist := 6371 * 2 * asin(sqrt(power(sin(radians(v_lat - p_guess_lat)/2),2)
+            + cos(radians(p_guess_lat))*cos(radians(v_lat))*power(sin(radians(v_lng - p_guess_lng)/2),2)));
+  v_pts := round(5000 * exp(-10 * v_dist / 14916.862));
+  insert into guesses(photo_id, player_id, guess_lat, guess_lng, distance_km, points)
+  values (p_photo_id, p_player_id, p_guess_lat, p_guess_lng, v_dist, v_pts)
+  on conflict (photo_id, player_id) do nothing;
+  select g.distance_km, g.points into v_dist, v_pts from guesses g where g.photo_id = p_photo_id and g.player_id = p_player_id;
+  return query select v_lat, v_lng, v_dist, v_pts;
+end; $$;
+revoke all on function public.submit_guess(uuid,uuid,double precision,double precision) from public;
+grant execute on function public.submit_guess(uuid,uuid,double precision,double precision) to anon, authenticated;

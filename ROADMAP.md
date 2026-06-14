@@ -212,26 +212,35 @@ touches the formula.
 
 ---
 
-## 🔄 Parallel track — Sync mode (live "race the same photo on a clock")
-Default stays async; sync is opt-in. The marquee competitive feature.
-Target: land between Stage 1 and Stage 2 — after the library flow is
-solid but before scoped scoring adds more complexity.
+## 🔄 Sync mode (live "race the same photo on a clock") — prioritized per owner
+This is the closest match to **GeoGuess.com** (the owner's reference): user-photo party
+rooms with live, server-clocked rounds + guess-markers appearing in real time. Default
+stays async; sync is opt-in.
 
-**What sync needs (not yet built):**
-- `rooms.mode` ('async'|'sync'), `photo_order uuid[]`, `round_idx`,
-  `round_started_at`, `round_ends_at` on the room (or a `rounds` table).
-- `advance_round(room, from_idx)` RPC, idempotent on `from_idx`.
-- Client countdown from `round_ends_at`; all players see the same photo
-  at the same time; reveal to everyone on round end.
-- 1s watchdog polling triggers `advance_round` when due.
-- Later: Supabase Realtime for instant transitions instead of polling.
+**✅ S1 — Server round engine (DONE 2026-06-13, fully RPC-tested)**
+- `rooms.mode` ('async'|'sync') + round state on the room: `photo_order uuid[]`,
+  `round_idx`, `round_phase` ('guessing'|'reveal'), `round_ends_at`.
+- `start_game` (sync) shuffles the pool and opens round 0.
+- `advance_round(room, from_idx, from_phase)` — idempotent (guarded by from_idx+phase);
+  guessing→reveal on timeout OR when every **online** player (≥1) has guessed;
+  reveal→next after a 5s window; last round→`finished`.
+- `get_round_state` (current photo for all; truth ONLY at reveal) and
+  `get_round_guesses` (others' markers, gated so you can't copy before guessing).
+- `submit_guess` hardened for sync: only the current round's photo, only during the
+  guessing window (blocks reveal-phase / wrong-photo cheats).
+- Verified: holds on partial guesses, reveal on all-guessed, round progression, finish,
+  truth gating, cheat rejections, no double-advance. (Async path unchanged.)
 
-**S1 — Server round engine**
-- Room mode: `rooms.mode text default 'async'` ('async' | 'sync').
-- Round state on room (or a `rounds` table): `photo_order uuid[]` (shuffled pool),
-  `round_idx int`, `round_started_at timestamptz`, `round_ends_at timestamptz`.
-- `start_game` (sync): build shuffled order from the pool, set round 0,
-  started_at=now(), ends_at=now()+seconds_per_photo, status='playing'.
+**⬜ S2 — Sync client (NEXT)**
+- Host toggles sync at room creation (Play/home create card).
+- Play: render the current photo from `get_round_state`; countdown derived from
+  `round_ends_at` (server time → all clocks agree); submit guess; on reveal show the
+  truth + everyone's guess markers (`get_round_guesses`); brief summary; next photo for
+  all simultaneously; final shared scoreboard + reveal map.
+- ~1s watchdog calls `advance_round` when due (any client; idempotent so concurrent
+  calls are safe). Later: Supabase Realtime instead of polling.
+
+**S1 design notes (implemented as above; kept for reference)**
 - `advance_round(room, from_idx)` RPC, **guarded by from_idx** (idempotent — only
   advances if current round_idx == from_idx) so concurrent client calls are safe.
   Advances when `now() >= round_ends_at` OR all online players have guessed the

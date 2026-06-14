@@ -42,6 +42,24 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-13 (later 3) — local session (Claude)
+- **Sync mode S1 (server round engine) shipped + fully RPC-tested.** This is the
+  GeoGuess.com-aligned headline feature. DB migrations are LIVE (async unaffected):
+  - `rooms` gained `mode` ('async'|'sync'), `photo_order uuid[]`, `round_idx`,
+    `round_phase` ('guessing'|'reveal'), `round_ends_at`.
+  - New RPCs: `advance_round(room,from_idx,from_phase)` (idempotent state machine),
+    `get_round_state` (truth only at reveal), `get_round_guesses` (markers, copy-gated).
+    `start_game` + `submit_guess` extended for sync (sync guards block reveal/wrong-photo
+    cheats). All in `db/schema.sql` under "SYNC MODE".
+  - ⚠️ plpgsql gotcha hit & fixed: `RETURNS TABLE` output names shadow `rooms` columns →
+    qualify every column with the table alias (`r.round_idx`, etc.).
+  - ⚠️ logic fix: "all guessed → reveal" must require ≥1 ONLINE player, else it's
+    vacuously true when everyone's `last_seen` is stale and fast-forwards the game.
+- **No client changes yet** — the deployed app is unchanged; sync is invisible until S2.
+- **NEXT: S2 — the sync client** (host toggle at create; round-driven play loop with
+  server-time countdown, live markers at reveal, ~1s `advance_round` watchdog). See
+  ROADMAP "Sync mode → S2".
+
 ### 2026-06-13 (later 2) — local session (Claude)
 - **Guided lobby shipped.** Reordered the lobby (invite → add photos → ready/start →
   players → leaderboard) and added a **state-driven "next step" banner** (`#lobby-step`,
