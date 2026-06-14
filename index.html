@@ -621,7 +621,7 @@
       <h3>The game</h3>
       <div class="help-steps">
         <div class="help-step"><div class="sn">1</div><div class="st"><b>Host creates a room</b> and shares the code — friends join by typing it on the home screen.</div></div>
-        <div class="help-step"><div class="sn">2</div><div class="st"><b>Everyone adds photos</b> from a trip or somewhere interesting. On a computer the app reads each photo's GPS automatically; on iPhone/iPad you drop a pin on the map instead (see the tip below).</div></div>
+        <div class="help-step"><div class="sn">2</div><div class="st"><b>Everyone adds photos</b> from a trip or somewhere interesting — the app reads each photo's GPS, or you drop a pin on the map if it's missing.</div></div>
         <div class="help-step"><div class="sn">3</div><div class="st">Select your photos, tap <b>Add to pool</b>, then <b>I'm ready</b>. The host starts the game once everyone is ready.</div></div>
         <div class="help-step"><div class="sn">4</div><div class="st"><b>Guess where each photo was taken</b> by dropping a pin on the map. Tap the map to expand it first if it's too small.</div></div>
         <div class="help-step"><div class="sn">5</div><div class="st">Score up to <b>5,000 pts per photo</b> — the closer your pin, the higher the score. Check the leaderboard and reveal map when you're done.</div></div>
@@ -639,14 +639,8 @@
     </div>
 
     <div class="help-tip">
-      <div class="tip-head">📍 Getting GPS from your photos</div>
-      On a <b>computer</b> (Chrome, Firefox, Edge, Safari) the app reads each photo's location automatically. On <b>iPhone/iPad</b>, the browser strips GPS when you pick from your Photos — every iOS browser does this (they all run on WebKit), so it's not a Safari-only thing and there's no in-browser workaround on the phone.
-      <div class="tip-opt">
-        <b>Manual pin (any device):</b> when no GPS is found, tap <b>"Set location"</b> and drop a pin on the map where the photo was taken.
-      </div>
-      <div class="tip-opt">
-        <b>Automatic GPS:</b> add photos from a computer browser — they keep GPS. Build your <b>Library</b> on a laptop, then play on your phone; your photos carry over.
-      </div>
+      <div class="tip-head">📍 Photo location</div>
+      Safari strips a photo's GPS before the app can read it, so you'll set the location by hand — when no GPS is found, tap <b>"Set location"</b> and drop a pin on the map. For automatic detection, add your photos from <b>Chrome</b>.
     </div>
 
     <button id="help-got-it" class="btn btn-primary" type="button">Got it</button>

@@ -42,6 +42,22 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-14 (later) — local session (Claude)
+- **Guide fix:** simplified the how-to-play GPS tip (was wordy + implied uploads
+  generally strip GPS). Now: "Safari strips GPS before the app can read it; set
+  location by hand, or add photos from Chrome for automatic detection."
+- **Experiment: server-side EXIF-from-URL (PROVEN).** New `exif-probe` edge function
+  (deployed, verify_jwt) fetches an image URL and reads EXIF GPS — bypasses iOS Photos
+  stripping entirely (phone never touches the file). Results: GitHub-raw geotagged
+  sample → GPS recovered (43.467, 11.885); picsum/CDN → none; `169.254.169.254` and
+  `file://` → blocked (SSRF guard). **Takeaway:** "import by link" is viable for
+  file-storage links (Drive `uc?export=download`, Dropbox, raw GitHub) but NOT image
+  CDNs/social (they strip). exif-probe is an experiment tool, not wired into the UI;
+  SSRF guard is basic (blocks local/private hosts) — harden before shipping a feature.
+- **Decision pending (owner):** turn exif-probe into a Library "add by link" path, or
+  leave it (the desktop-library flow already covers most iOS users). Next feature options
+  unchanged: Stage 2 scoped scoring, sync polish (Realtime), global leaderboard.
+
 ### 2026-06-14 — local session (Claude)
 - **Stage 1 COMPLETE — library is now the primary upload path** (slice 2: library→room).
   - DB: `photos.source_lib_id` (+ partial unique index) links a room photo to its
