@@ -676,3 +676,22 @@ begin
 end; $$;
 revoke all on function public.submit_guess(uuid,uuid,double precision,double precision) from public;
 grant execute on function public.submit_guess(uuid,uuid,double precision,double precision) to anon, authenticated;
+
+-- reset_room (final form): a rematch must also clear sync round state (mode kept).
+create or replace function public.reset_room(p_player_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_host uuid;
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can start a new game'; end if;
+  delete from guesses where photo_id in (select id from photos where room_id = v_room);
+  update photos  set in_pool = false where room_id = v_room;
+  update players set ready = false   where room_id = v_room;
+  update rooms   set status = 'lobby', game_seq = game_seq + 1,
+                     round_idx = 0, round_phase = null, photo_order = null, round_ends_at = null
+    where id = v_room;
+end; $$;
+revoke all on function public.reset_room(uuid) from public;
+grant execute on function public.reset_room(uuid) to anon, authenticated;

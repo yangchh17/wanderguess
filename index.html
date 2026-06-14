@@ -331,6 +331,8 @@
       font-size:.92rem;font-weight:500;color:#cfe0ff}
     .lobby-step .num{flex:0 0 auto;width:25px;height:25px;border-radius:50%;background:var(--grad);
       color:#04182e;font-weight:700;font-size:.82rem;display:grid;place-items:center;font-family:'Space Grotesk',sans-serif}
+    .segment-2{grid-template-columns:repeat(2,1fr)}
+    #mode-hint{font-size:.78rem}
   </style>
 </head>
 <body>
@@ -384,6 +386,15 @@
           <button type="button" class="seg" data-val="120">2:00</button>
           <button type="button" class="seg" data-val="" aria-label="No limit">∞</button>
         </div>
+      </div>
+      <div class="field">
+        <label>Game mode</label>
+        <input type="hidden" id="mode" value="async" />
+        <div class="segment segment-2" id="mode-seg">
+          <button type="button" class="seg on" data-val="async">Relaxed</button>
+          <button type="button" class="seg" data-val="sync">Live</button>
+        </div>
+        <small class="mut" id="mode-hint">Relaxed: everyone guesses on their own time.</small>
       </div>
       <button id="btn-create" class="btn btn-primary">Create room</button>
     </div>
@@ -670,12 +681,14 @@ $('btn-create').addEventListener('click', async () => {
   try {
     await ensureAuth();
     const ppp = Math.max(1, Math.min(5, parseInt($('ppp').value, 10) || 3));
+    const gmode = $('mode') && $('mode').value === 'sync' ? 'sync' : 'async';
     const sppRaw = $('spp').value;
-    const spp = sppRaw === '' ? null : parseInt(sppRaw, 10);   // null = no limit
+    // sync needs a clock; if "No limit" is chosen, fall back to 60s for sync.
+    const spp = sppRaw === '' ? (gmode === 'sync' ? 60 : null) : parseInt(sppRaw, 10);
     let room = null;
     for (let i = 0; i < 5 && !room; i++) {
       const code = randomCode();
-      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp }).select().single();
+      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp, mode: gmode }).select().single();
       if (!error) room = data;                 // unique-violation => retry
     }
     if (!room) throw new Error('could not allocate a room code');
@@ -757,6 +770,7 @@ let roomSPP = 90;      // seconds per photo (null = no limit)
 let roomSeq = 0;       // game generation (bumped on rematch) — scopes guess-memory
 let mySelected = null; // Set of my photo ids chosen for the pool (null until first render)
 let prevStatus = null; // last seen room status (to detect the lobby->playing transition)
+let roomMode = 'async'; // 'async' | 'sync' (live rounds)
 
 async function enterLobby(){
   // Validate the saved session still points to a live room + player
@@ -794,9 +808,10 @@ function invalidSession(msg){
 async function refreshLobby(){
   await sb.rpc('touch_player', { p_player_id: session.playerId });   // presence heartbeat (await so we count as online)
 
-  const { data: room } = await sb.from('rooms').select('status,game_seq').eq('id', session.roomId).maybeSingle();
+  const { data: room } = await sb.from('rooms').select('status,game_seq,mode').eq('id', session.roomId).maybeSingle();
   const status = room ? room.status : 'lobby';
   roomSeq = room ? (room.game_seq || 0) : roomSeq;   // keep guess-memory scoped to the current game
+  roomMode = room ? (room.mode || 'async') : roomMode;
 
   // roster with server-computed presence (online). Host = earliest player.
   const { data: players } = await sb.from('roster')
@@ -846,16 +861,19 @@ async function refreshLobby(){
     + (status === 'lobby' && !amHost ? ' · waiting for host' : '')
     + (status === 'playing' ? ' · game started!' : '');
 
-  // "Start guessing" appears once the game is playing (entry / resume)
+  // "Start guessing" appears once the game is playing (async only — sync auto-enters)
   const bs = $('btn-start');
-  bs.style.display = status === 'playing' ? '' : 'none';
+  bs.style.display = (status === 'playing' && roomMode !== 'sync') ? '' : 'none';
   bs.disabled = !(status === 'playing' && togo.length > 0);
 
   // Guided "what to do next" banner — one clear instruction for the current state.
   let stepN = 1, stepT = `Add your photos, then add them to the pool.`;
   if (status === 'playing') {
-    if (togo.length > 0) { stepN = '▶'; stepT = `Game on — tap "Start guessing".`; }
+    if (roomMode === 'sync') { stepN = '▶'; stepT = `Live game in progress — joining…`; }
+    else if (togo.length > 0) { stepN = '▶'; stepT = `Game on — tap "Start guessing".`; }
     else { stepN = '✓'; stepT = `You've guessed every photo — check the leaderboard.`; }
+  } else if (status === 'finished') {
+    stepN = '✓'; stepT = `Game over — check the leaderboard${amHost ? ' or start a new game' : ''}.`;
   } else if (myPooled < 1) {
     stepN = 1; stepT = `Add your photos, then add them to the pool.`;
   } else if (!myReady) {
@@ -873,8 +891,11 @@ async function refreshLobby(){
   // Host can reset for a new game (rematch)
   $('btn-newgame').style.display = amHost ? '' : 'none';
 
+  // Sync: everyone auto-enters the live game the moment the host starts it.
+  if (status === 'playing' && roomMode === 'sync' && !sync.on) enterSyncPlay();
   // If the host reset the room while you were playing, drop back to the lobby.
   if (status === 'lobby' && $('s-play').classList.contains('on')) {
+    if (sync.on) stopSync();
     clearTimer(); resetPlay();
     $('s-play').classList.remove('on'); $('g-finish').classList.remove('on');
   }
@@ -1102,6 +1123,7 @@ function ensureGuessMap(){
   panel.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') setGExpanded(true); });
   panel.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && gstate.phase === 'guessing') setGExpanded(false); });
   gmap.on('click', (e) => {
+    if (sync.on) { syncMapClick(e); return; }
     if (gstate.phase !== 'guessing') return;
     // Touch: first tap expands the small map; next tap drops the pin.
     if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
@@ -1282,6 +1304,7 @@ function nextGuess(){
 async function finishPlay(){
   clearTimer();
   gstate.phase = 'done';
+  $('g-reveal').style.display = '';   // async builds the reveal map from cached results
   try { await sb.rpc('record_game', { p_player_id: session.playerId }); } catch (e) { console.warn('record_game', e); }
   $('g-finish-sub').textContent = gstate.queue.length
     ? `You scored ${gstate.score.toLocaleString()} this round.`
@@ -1292,6 +1315,127 @@ async function finishPlay(){
 }
 
 function exitPlay(){ clearTimer(); $('s-play').classList.remove('on'); refreshLobby(); }
+
+// ──────────────── Sync mode (live, server-clocked rounds) ────────────────
+// Everyone guesses the same photo at once; the server (advance_round) drives the
+// phase clock and we poll get_round_state. Reuses the play DOM + helpers.
+const sync = { on:false, timer:null, idx:-1, phase:null, photoId:null, guess:null, guessed:false, score:0, lastPoints:0, advancing:false };
+let syncLayers = [];
+function clearSyncLayers(){ syncLayers.forEach(l => l && gmap && gmap.removeLayer(l)); syncLayers = []; }
+const inGuessPhase = () => sync.on ? sync.phase === 'guessing' : gstate.phase === 'guessing';
+
+function enterSyncPlay(){
+  if (sync.on) return;
+  sync.on = true; sync.idx = -1; sync.phase = null; sync.guess = null; sync.guessed = false; sync.score = 0;
+  $('g-finish').classList.remove('on'); $('g-next').style.display = 'none';
+  $('s-play').classList.add('on');
+  ensureGuessMap();
+  setTimeout(() => gmap.invalidateSize(), 60);
+  syncTick();
+  clearInterval(sync.timer); sync.timer = setInterval(syncTick, 1000);
+}
+function stopSync(){ clearInterval(sync.timer); sync.timer = null; sync.on = false; }
+function exitSync(){ stopSync(); $('s-play').classList.remove('on'); $('g-finish').classList.remove('on'); refreshLobby(); }
+
+async function syncTick(){
+  if (!sync.on) return;
+  const { data, error } = await sb.rpc('get_round_state', { p_room: session.roomId });
+  if (error || !data || !data[0]) return;
+  const rs = data[0];
+  if (rs.status === 'finished') return finishSync();
+  if (rs.status !== 'playing') return;                       // reset → lobby poll drops us back
+
+  if (rs.round_idx !== sync.idx) renderSyncRound(rs);
+  else if (rs.round_phase === 'reveal' && sync.phase !== 'reveal') revealSyncRound(rs);
+  sync.phase = rs.round_phase;
+
+  // countdown (server owns the real deadline; this is the display)
+  const remaining = rs.round_ends_at ? Math.max(0, Math.round((new Date(rs.round_ends_at).getTime() - Date.now()) / 1000)) : 0;
+  $('g-time').textContent = fmtTime(remaining);
+  $('g-time').classList.toggle('low', sync.phase === 'guessing' && remaining <= 10);
+
+  // watchdog: nudge the server when the phase deadline has passed (idempotent + guarded)
+  if (rs.round_ends_at && Date.now() >= new Date(rs.round_ends_at).getTime() && !sync.advancing) {
+    sync.advancing = true;
+    try { await sb.rpc('advance_round', { p_room: session.roomId, p_from_idx: rs.round_idx, p_from_phase: rs.round_phase }); }
+    catch {} finally { sync.advancing = false; }
+  }
+}
+
+function renderSyncRound(rs){
+  sync.idx = rs.round_idx; sync.phase = 'guessing'; sync.photoId = rs.photo_id; sync.guess = null; sync.guessed = false;
+  clearGuessLayers(); clearSyncLayers(); setGExpanded(false); hideReveal(); resetZoom();
+  if (gmap) gmap.setView([20, 0], 2);
+  $('g-round').textContent = `${rs.round_idx + 1} / ${rs.total}`;
+  $('g-score').textContent = sync.score.toLocaleString();
+  $('g-confirm').style.display = ''; $('g-confirm').disabled = true; $('g-confirm').textContent = 'Tap the map to guess';
+  $('g-next').style.display = 'none';
+  const photo = $('g-photo'); photo.style.backgroundImage = 'none';
+  $('g-spin').classList.add('on');
+  const pre = new Image();
+  pre.onload = () => { $('g-spin').classList.remove('on'); photo.style.backgroundImage = `url("${rs.display_url}")`; };
+  pre.onerror = () => { $('g-spin').classList.remove('on'); };
+  pre.src = rs.display_url;
+}
+
+function syncMapClick(e){
+  if (sync.phase !== 'guessing' || sync.guessed) return;
+  if (!$('g-mapPanel').classList.contains('expanded')) { setGExpanded(true); return; }
+  sync.guess = wrapLL(e.latlng);
+  const icon = L.divIcon({ className:'', html:'<div class="guesspin"></div>', iconSize:[20,20], iconAnchor:[10,10] });
+  if (gGuessMarker) gGuessMarker.setLatLng(e.latlng); else gGuessMarker = L.marker(e.latlng, { icon }).addTo(gmap);
+  $('g-confirm').disabled = false; $('g-confirm').textContent = 'Confirm guess';
+}
+
+async function syncConfirm(){
+  if (!sync.guess || sync.guessed || sync.phase !== 'guessing') return;
+  $('g-confirm').disabled = true; $('g-confirm').textContent = 'locking in…';
+  const { data, error } = await sb.rpc('submit_guess', {
+    p_photo_id: sync.photoId, p_player_id: session.playerId,
+    p_guess_lat: sync.guess.lat, p_guess_lng: sync.guess.lng });
+  if (error) { sync.guessed = true; $('g-confirm').textContent = 'round closed'; return; }
+  const res = Array.isArray(data) ? data[0] : data;
+  sync.guessed = true; sync.lastPoints = res.points;
+  sync.score += res.points; $('g-score').textContent = sync.score.toLocaleString();
+  $('g-confirm').textContent = 'Locked in — waiting for others…';
+  // if that was the last guess, nudge straight to reveal
+  sb.rpc('advance_round', { p_room: session.roomId, p_from_idx: sync.idx, p_from_phase: 'guessing' }).catch(() => {});
+}
+
+async function revealSyncRound(rs){
+  sync.phase = 'reveal';
+  setGExpanded(true);
+  $('g-confirm').style.display = 'none';
+  clearGuessLayers(); clearSyncLayers();
+  const truth = (rs.truth_lat != null) ? { lat: rs.truth_lat, lng: rs.truth_lng } : null;
+  const { data: gs } = await sb.rpc('get_round_guesses', { p_room: session.roomId });
+  const bounds = [];
+  (gs || []).forEach(g => {
+    const me = g.player_id === session.playerId;
+    const icon = L.divIcon({ className:'', html:`<div class="guesspin"${me ? ' style="background:var(--primary)"' : ''}></div>`, iconSize:[20,20], iconAnchor:[10,10] });
+    const m = L.marker([g.guess_lat, g.guess_lng], { icon }).bindTooltip(g.name + (me ? ' (you)' : '')).addTo(gmap);
+    syncLayers.push(m); bounds.push([g.guess_lat, g.guess_lng]);
+  });
+  if (truth) {
+    const ticon = L.divIcon({ className:'', html:'<div class="truthpin"></div>', iconSize:[20,20], iconAnchor:[10,10] });
+    syncLayers.push(L.marker([truth.lat, truth.lng], { icon: ticon }).bindTooltip('Actual location').addTo(gmap));
+    bounds.push([truth.lat, truth.lng]);
+  }
+  if (bounds.length) setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds(bounds).pad(.25)); }, 200);
+  if (sync.guessed && truth && sync.guess) { const { distanceKm } = scoreGuess(truth, sync.guess); showReveal(distanceKm, sync.lastPoints || 0); }
+  else showReveal(null, 0);
+}
+
+async function finishSync(){
+  stopSync();
+  sync.phase = 'finished';
+  try { await sb.rpc('record_game', { p_player_id: session.playerId }); } catch (e) { console.warn('record_game', e); }
+  $('g-finish-sub').textContent = `You scored ${sync.score.toLocaleString()} this game.`;
+  $('g-reveal').style.display = 'none';   // sync builds the reveal live, no cached results map
+  const { data: lb } = await sb.rpc('get_leaderboard', { p_room: session.roomId });
+  renderLeaderboard($('g-finish-lb'), lb || []);
+  $('g-finish').classList.add('on');
+}
 
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
@@ -1314,9 +1458,9 @@ $('btn-hoststart').addEventListener('click', async () => {
   refreshLobby();
 });
 $('btn-start').addEventListener('click', enterPlay);
-$('g-confirm').addEventListener('click', confirmGuess2);
+$('g-confirm').addEventListener('click', () => sync.on ? syncConfirm() : confirmGuess2());
 $('g-next').addEventListener('click', nextGuess);
-$('g-exit').addEventListener('click', exitPlay);
+$('g-exit').addEventListener('click', () => sync.on ? exitSync() : exitPlay());
 $('g-back').addEventListener('click', exitPlay);
 $('g-reveal').addEventListener('click', openResults);
 $('btn-results').addEventListener('click', openResults);
@@ -1351,7 +1495,7 @@ function zoomAt(px, py, next){
   const st = $('g-stage'); const pts = new Map(); let last = null, pinchD = 0, pinchS = 1;
   const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   st.addEventListener('pointerdown', e => {
-    if (gstate.phase !== 'guessing') return;
+    if (!inGuessPhase()) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { st.setPointerCapture(e.pointerId); } catch {}
     if (pts.size === 1) { last = { x: e.clientX, y: e.clientY }; $('g-photo').classList.add('dragging'); st.classList.add('grabbing'); }
@@ -1372,11 +1516,11 @@ function zoomAt(px, py, next){
     if (pts.size === 0) { last = null; $('g-photo').classList.remove('dragging'); st.classList.remove('grabbing'); } };
   st.addEventListener('pointerup', end); st.addEventListener('pointercancel', end);
   st.addEventListener('wheel', e => {
-    if (gstate.phase !== 'guessing') return; e.preventDefault();
+    if (!inGuessPhase()) return; e.preventDefault();
     const r = st.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, zScale * Math.exp(-e.deltaY * 0.0015));
   }, { passive: false });
   st.addEventListener('dblclick', e => {
-    if (gstate.phase !== 'guessing') return;
+    if (!inGuessPhase()) return;
     const r = st.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, zScale > 1 ? 1 : 2.5);
   });
   const center = f => { const s = $('g-stage'); zoomAt(s.clientWidth / 2, s.clientHeight / 2, zScale * f); };

@@ -42,6 +42,28 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-13 (later 4) — local session (Claude)
+- **Sync mode S2 (the live client) shipped + 2-player browser-tested.** Sync is now
+  fully playable end-to-end. Changes (all in `index.html` inline module + `js/ui.js`):
+  - Home create card: a **Relaxed / Live** toggle (`#mode-seg`, hidden `#mode`); create
+    handler sets `rooms.mode` (and defaults a 60s clock if "No limit" + sync).
+  - New sync controller (in the inline module): `sync` state + `enterSyncPlay`,
+    `syncTick` (polls `get_round_state` ~1s), `renderSyncRound`, `syncMapClick`,
+    `syncConfirm`, `revealSyncRound` (truth + everyone's markers via `get_round_guesses`),
+    `finishSync`, plus a `~1s advance_round` watchdog.
+  - Shared play handlers are **routed by a `sync.on` flag**: the gmap click, `#g-confirm`,
+    `#g-exit`, and the zoom guards (`inGuessPhase()`) work for both modes. Async path is
+    unchanged and was regression-tested (still uses its own per-photo timer).
+  - `refreshLobby` reads `mode`, **auto-enters** sync for everyone on host-start, hides
+    "Start guessing" in sync, and shows sync/finished step text. `reset_room` now clears
+    round state (migration live + in `db/schema.sql`).
+- ⚠️ Testing note: the reveal phase is only ~5s, so DOM polls often "miss" it — it does
+  render (caught it showing truth/markers/"Out of time"). Don't mistake a missed poll
+  for a bug.
+- **NEXT options:** Stage 1 (personal library) per the committed plan; OR sync polish
+  (Supabase Realtime instead of 1s polling; nicer between-round summary; live marker
+  count). Owner away ~2 days; continuing autonomously.
+
 ### 2026-06-13 (later 3) — local session (Claude)
 - **Sync mode S1 (server round engine) shipped + fully RPC-tested.** This is the
   GeoGuess.com-aligned headline feature. DB migrations are LIVE (async unaffected):

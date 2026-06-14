@@ -231,14 +231,19 @@ stays async; sync is opt-in.
 - Verified: holds on partial guesses, reveal on all-guessed, round progression, finish,
   truth gating, cheat rejections, no double-advance. (Async path unchanged.)
 
-**⬜ S2 — Sync client (NEXT)**
-- Host toggles sync at room creation (Play/home create card).
-- Play: render the current photo from `get_round_state`; countdown derived from
-  `round_ends_at` (server time → all clocks agree); submit guess; on reveal show the
-  truth + everyone's guess markers (`get_round_guesses`); brief summary; next photo for
-  all simultaneously; final shared scoreboard + reveal map.
-- ~1s watchdog calls `advance_round` when due (any client; idempotent so concurrent
-  calls are safe). Later: Supabase Realtime instead of polling.
+**✅ S2 — Sync client (DONE 2026-06-13, 2-player browser-tested end-to-end)**
+- Host toggles **Relaxed / Live** at room creation (home create card; `#mode-seg`).
+- Sync rooms **auto-enter** all players when the host starts (no "Start guessing" tap;
+  driven by `refreshLobby` detecting `mode='sync' && status='playing'`).
+- Play loop polls `get_round_state` (~1s): renders the current photo, **server-clocked
+  countdown** from `round_ends_at`, map guess → `submit_guess` ("locked in"); on reveal
+  shows the truth + **everyone's guess markers** (`get_round_guesses`); auto-advances to
+  the next photo for all; final shared scoreboard (`record_game` + leaderboard).
+- ~1s **watchdog** calls `advance_round` when the phase deadline passes (idempotent).
+- Reuses the play DOM + helpers; async path untouched (routed by a `sync.on` flag).
+  Verified: auto-enter, countdown, guess/lock-in, reveal card + markers, round
+  progression, finish screen — and async play regression-checked (still uses its own
+  per-photo timer). Later: Supabase Realtime instead of 1s polling.
 
 **S1 design notes (implemented as above; kept for reference)**
 - `advance_round(room, from_idx)` RPC, **guarded by from_idx** (idempotent — only

@@ -43,6 +43,18 @@
     $('spp').value = b.dataset.val;
   });
 
+  // ── Game-mode segmented control (writes to hidden #mode) ──
+  const mseg = $('mode-seg');
+  mseg && mseg.addEventListener('click', e => {
+    const b = e.target.closest('.seg'); if (!b) return;
+    mseg.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === b));
+    $('mode').value = b.dataset.val;
+    const hint = $('mode-hint');
+    if (hint) hint.textContent = b.dataset.val === 'sync'
+      ? 'Live: everyone races the same photo on a shared clock.'
+      : 'Relaxed: everyone guesses on their own time.';
+  });
+
   // ── Score / points "pop" on change (observes text, no module changes) ──
   const bump = id => {
     const el = $(id); if (!el) return;
