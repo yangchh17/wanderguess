@@ -512,9 +512,26 @@
     </div>
   </section>
 
-  <!-- Bottom tab bar (Stage 0 UI shell — Library/Explore tabs arrive in later stages) -->
+  <!-- ───────── Library (your reusable photo stack) ───────── -->
+  <section id="s-library" class="screen">
+    <div class="card">
+      <div class="rowhead"><h2>Your library</h2><span class="mut" id="lib-count">0 / 15</span></div>
+      <span class="mut">Photos here are EXIF-stripped and reusable in any game — build your stack on your own time, then pick from it when you join a room.</span>
+      <label class="filepick">
+        <span class="pico">＋</span>
+        <span>Add photos to your library</span>
+        <small>JPEG, PNG or HEIC · location read automatically</small>
+        <input type="file" id="lib-input" accept="image/*" multiple />
+      </label>
+      <div id="lib-uplist" class="uplist"></div>
+      <div id="lib-grid" class="mygrid"></div>
+    </div>
+  </section>
+
+  <!-- Bottom tab bar (Stage 0 UI shell — Explore tab arrives in Stage 3) -->
   <nav id="tabbar">
     <button class="tab on" data-tab="play" type="button"><span class="ti">🌍</span>Play</button>
+    <button class="tab" data-tab="library" type="button"><span class="ti">🖼️</span>Library</button>
     <button class="tab" data-tab="profile" type="button"><span class="ti">👤</span>Profile</button>
   </nav>
 
@@ -1555,6 +1572,73 @@ document.addEventListener('keydown', e => {
     else if (gstate.phase === 'revealed') { e.preventDefault(); nextGuess(); }
   }
 });
+
+// ──────────────── Personal library (build/manage your reusable photo stack) ────────────────
+let myUid = null;
+async function getUid(){ if (!myUid){ await ensureAuth(); const u = await sb.auth.getUser(); myUid = u.data.user ? u.data.user.id : null; } return myUid; }
+
+async function loadLibrary(){
+  show('s-library');
+  const grid = $('lib-grid'); grid.innerHTML = '<span class="mut">Loading…</span>';
+  const { data } = await sb.from('library_public').select('id,display_url,status').order('created_at', { ascending: false });
+  renderLibrary(data || []);
+}
+function renderLibrary(rows){
+  $('lib-count').textContent = `${rows.length} / 15`;
+  const grid = $('lib-grid');
+  if (!rows.length){ grid.innerHTML = '<span class="mut">No photos yet — add some below.</span>'; return; }
+  grid.innerHTML = rows.map(r =>
+    `<div class="mph" data-id="${r.id}">` +
+    (r.display_url ? `<img src="${r.display_url}" alt=""/>` : `<div class="mut" style="display:grid;place-items:center;height:100%;font-size:.7rem">${r.status}</div>`) +
+    `<button class="del" title="Delete">×</button></div>`).join('');
+  grid.querySelectorAll('.mph .del').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!confirm('Delete this photo from your library?')) return;
+    await sb.rpc('delete_library_photo', { p_id: b.parentElement.dataset.id });
+    loadLibrary();
+  }));
+}
+$('lib-input').addEventListener('change', (e) => {
+  const picked = [...e.target.files].slice(0, 15); e.target.value = '';
+  if (!picked.length) return;
+  picked.forEach(uploadToLibrary);
+});
+async function uploadToLibrary(file){
+  const row = document.createElement('div'); row.className = 'up';
+  row.innerHTML = `<img class="thumb" alt=""/><div class="updet"><div class="nm">${escapeHtml(file.name || 'photo')}</div><div class="st">preparing…</div></div>`;
+  $('lib-uplist').appendChild(row);
+  const thumbEl = row.querySelector('.thumb');
+  const setSt = t => { row.querySelector('.st').textContent = t; };
+  const setCls = c => { row.className = 'up ' + c; };
+  try {
+    const uid = await getUid();
+    if (!uid){ setCls('bad'); setSt('not signed in'); return; }
+    const { blob, contentType } = await withDecodeSlot(() => makeDisplaySource(file));
+    const previewUrl = URL.createObjectURL(blob); thumbEl.src = previewUrl;
+    let coord = null;
+    try { const g = await exifr.gps(file); if (g && g.latitude != null && g.longitude != null) coord = { lat: g.latitude, lng: g.longitude }; } catch {}
+    async function doUpload(){
+      setSt('uploading…');
+      const photoId = uuid(); const srcPath = `lib/${uid}/${photoId}.src`;
+      const up = await sb.storage.from('uploads').upload(srcPath, blob, { contentType });
+      if (up.error){ setCls('bad'); setSt('error: ' + up.error.message); return; }
+      setSt('processing…');
+      const { data, error } = await sb.functions.invoke('process-photo', { body: { target: 'library', photoId, srcPath, lat: coord.lat, lng: coord.lng } });
+      if (error){ let d = error.message; try { if (error.context) d = (await error.context.json()).error || d; } catch {} setCls('bad'); setSt('error: ' + d); return; }
+      if (data.status === 'ready'){ setCls('ok'); setSt('added ✓'); loadLibrary(); setTimeout(() => row.remove(), 1000); }
+      else if (data.status === 'rejected'){ setCls('bad'); setSt(data.error || 'rejected'); }
+      else { setCls('bad'); setSt('unexpected response'); }
+    }
+    if (coord) await doUpload();
+    else {
+      setSt('no GPS — tap “Set location”');
+      const btn = document.createElement('button'); btn.className = 'act'; btn.textContent = 'Set location';
+      row.appendChild(btn);
+      btn.addEventListener('click', async () => { const c = await pickLocationOnMap(previewUrl); if (!c) return; coord = c; btn.remove(); await doUpload(); });
+    }
+  } catch (e){ setCls('bad'); setSt('error: ' + (e.message || e)); }
+}
+window.addEventListener('wg:open-library', loadLibrary);
 
 // resume an existing session if present (after auth is ready); else offer rejoin
 // (account/profile, feedback, and UI enhancements live in js/*.js modules)

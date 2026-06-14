@@ -42,6 +42,23 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-13 (later 6) — local session (Claude)
+- **Library tab shipped** (Stage 1 client slice 1). Tab bar is now **Play · Library ·
+  Profile** (`js/nav.js` handles the 3rd tab via a `wg:open-library` event). New
+  `s-library` screen + library logic in the inline module: `loadLibrary`/`renderLibrary`
+  (reads `library_public`), `uploadToLibrary` (reuses `makeDisplaySource`/exifr/
+  `pickLocationOnMap`, calls process-photo `target:'library'`, `lib/{uid}/{id}.src`),
+  delete via `delete_library_photo`, `N / 15` count. `getUid()` caches the JWT uid.
+  Verified in-browser: 3 tabs, navigate, empty state, real upload→process→renders, delete.
+- Gameplay still uses the OLD lobby file-picker → room flow (unchanged). The library is
+  not wired into rooms yet.
+- **NEXT (Stage 1 slice 2 — wire library → room):** add `add_library_to_room(p_player_id,
+  p_lib_ids[])` (copies chosen `library_photos` rows into the room's `photos`, truth
+  preserved server-side, capped at `photos_per_player`), then change the lobby "Your
+  photos" card to pick from the library grid instead of a file picker (keep a quick "add
+  photo" that uploads to library AND selects it). That makes the library the primary
+  upload path and finishes the iOS fix.
+
 ### 2026-06-13 (later 5) — local session (Claude)
 - **Stage 1 backend (personal library) shipped + edge/RPC-tested.** Migrations live;
   no client UI yet (gameplay unchanged — old direct-upload flow still in use).

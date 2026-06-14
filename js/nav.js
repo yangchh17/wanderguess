@@ -14,13 +14,20 @@ function inRoom(){
 }
 
 bar.querySelector('[data-tab="play"]').addEventListener('click', () => show(inRoom() ? 's-lobby' : 's-home'));
+bar.querySelector('[data-tab="library"]').addEventListener('click', () => {
+  window.dispatchEvent(new Event('wg:open-library'));   // game module loads + shows s-library
+});
 bar.querySelector('[data-tab="profile"]').addEventListener('click', () => {
-  window.dispatchEvent(new Event('wg:open-profile'));   // account.js loads + shows s-profile
+  window.dispatchEvent(new Event('wg:open-profile'));    // account.js loads + shows s-profile
 });
 
 // Keep the active tab in sync with the visible screen, whoever changed it.
-const screens = ['s-home', 's-lobby', 's-profile'].map(id => document.getElementById(id)).filter(Boolean);
-const sync = () => setActive(document.getElementById('s-profile').classList.contains('on') ? 'profile' : 'play');
+const screens = ['s-home', 's-lobby', 's-profile', 's-library'].map(id => document.getElementById(id)).filter(Boolean);
+const sync = () => {
+  if (document.getElementById('s-profile').classList.contains('on')) setActive('profile');
+  else if (document.getElementById('s-library').classList.contains('on')) setActive('library');
+  else setActive('play');
+};
 const mo = new MutationObserver(sync);
 screens.forEach(s => mo.observe(s, { attributes: true, attributeFilter: ['class'] }));
 sync();
