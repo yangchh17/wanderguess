@@ -42,6 +42,27 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-13 (later 5) — local session (Claude)
+- **Stage 1 backend (personal library) shipped + edge/RPC-tested.** Migrations live;
+  no client UI yet (gameplay unchanged — old direct-upload flow still in use).
+  - `library_photos` table (owner-only RLS, truth locked) + `library_public` view +
+    `delete_library_photo` RPC. In `db/schema.sql` under "PERSONAL LIBRARY".
+  - **process-photo v9** (deployed): adds `target:'library'` — writes to
+    `library_photos` for the JWT uid, `lib/{uid}/{photoId}.src` srcPath pinned,
+    display under `display/lib/{uid}/`, 15-photo cap, ownership-guarded. Room path
+    unchanged (factored the decode into `downloadAndEncode`). Local file synced.
+  - Verified end-to-end (generated image → upload → process → ready; truth locked;
+    cross-user can't see/delete; owner delete works).
+  - Note: `uploads` bucket INSERT policy is just `bucket_id='uploads'` (no path
+    restriction), so `lib/{uid}/` uploads work without a new policy.
+- **NEXT (Stage 1 client, 2 slices):** (1) a **Library tab** (3rd tab: Play · Library ·
+  Profile) to upload/manage your library — reuse the existing upload pipeline
+  (`makeDisplaySource`, exifr GPS, `pickLocationOnMap`) but call process-photo with
+  `target:'library'` and srcPath `lib/{uid}/{id}.src`. (2) `add_library_to_room` RPC
+  (copies chosen library rows → room `photos`, truth preserved server-side, capped at
+  photos_per_player) + change the lobby to pick from the library grid instead of a file
+  picker. Keep an "add photo" that uploads to library AND selects it in one step.
+
 ### 2026-06-13 (later 4) — local session (Claude)
 - **Sync mode S2 (the live client) shipped + 2-player browser-tested.** Sync is now
   fully playable end-to-end. Changes (all in `index.html` inline module + `js/ui.js`):

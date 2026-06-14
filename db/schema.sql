@@ -695,3 +695,39 @@ begin
 end; $$;
 revoke all on function public.reset_room(uuid) from public;
 grant execute on function public.reset_room(uuid) to anon, authenticated;
+
+
+-- ============================================================
+--  PERSONAL LIBRARY (Stage 1) — user-owned, EXIF-stripped, truth-bearing photos
+--  built on your own time and reusable across rooms. Truth is locked exactly like
+--  room photos. Written only by process-photo (target=library, service role) and
+--  deleted via the RPC below. Guest libraries carry over on account upgrade (uid kept).
+-- ============================================================
+create table if not exists public.library_photos (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid(),
+  status      text not null default 'pending',   -- pending | ready | rejected
+  display_url text,
+  truth_lat   double precision,                   -- PRIVATE — never granted to clients
+  truth_lng   double precision,                   -- PRIVATE
+  error       text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists library_photos_user on public.library_photos(user_id, created_at);
+alter table public.library_photos enable row level security;
+revoke all on public.library_photos from anon, authenticated;
+drop policy if exists lib_select on public.library_photos;
+create policy lib_select on public.library_photos for select to anon, authenticated using (user_id = auth.uid());
+grant select (id, user_id, status, display_url, error, created_at) on public.library_photos to anon, authenticated;
+
+drop view if exists public.library_public;
+create view public.library_public with (security_invoker = on) as
+  select id, user_id, status, display_url, error, created_at from public.library_photos;
+grant select on public.library_public to anon, authenticated;
+
+create or replace function public.delete_library_photo(p_id uuid)
+returns void language sql security definer set search_path = public as $$
+  delete from public.library_photos where id = p_id and user_id = auth.uid();
+$$;
+revoke all on function public.delete_library_photo(uuid) from public;
+grant execute on function public.delete_library_photo(uuid) to anon, authenticated;

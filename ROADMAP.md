@@ -155,6 +155,13 @@ touches the formula.
 - Full-screen overlays (play/results/pin/help) unchanged; they render above the bar.
 
 ### Stage 1 — Personal library (fixes iOS for good)
+**✅ Backend done (2026-06-13, RPC/edge-tested):** `library_photos` table (owner-only
+RLS, truth locked, `library_public` view), `delete_library_photo` RPC, and
+**process-photo v9** with a `target='library'` path (uid from JWT, `lib/{uid}/` srcPath
+pinned, 15-photo cap, ownership-guarded). Verified: upload→process→ready, truth locked,
+cross-user isolation, owner-only delete, cap. **⬜ NEXT (client):** a Library tab to
+build/manage it, then wire library→room pool (`add_library_to_room`) so the library is
+the primary upload path (no lobby file-picker; pick from your grid).
 - `library_photos`: owned by auth.uid(); truth columns locked exactly like
   `photos` (truth stays RPC-only everywhere); safe view without truth;
   display images under `display/lib/{uid}/`.
