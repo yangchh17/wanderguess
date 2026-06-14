@@ -202,16 +202,17 @@ empty-library prompt → seed → pick → Add to pool (copies, linked, pooled) 
   photo in library → added to room → truth stored correctly → revealed
   after guess) is required before relying on it.
 
-### Stage 2 — Scoped scoring (tags + reverse geocode)
-- `process-photo` reverse-geocodes truth → city/region/country stored on
-  the photo (locked columns; never rendered during guessing).
-- Same formula, parameterized map size (already a param in shared/geo.js):
-  world 14,917 km · country ~2,000 · region ~400 · city ~40. Fixed
-  constants first; per-country bounding boxes later if wanted.
-- `rooms.scope` ('world'|'country'|'region'|'city') + `scope_km`; host
-  picks at create; `submit_guess` reads scope_km (server stays authority).
-- Tags shown ONLY in library/pool browsing and as the game's scope label —
-  equal info for everyone, no per-photo leak during play.
+### Stage 2 — Scoped scoring ✅ DONE (2026-06-14, RPC + UI verified)
+- `rooms.scope` ('world'|'country'|'region'|'city'); host picks at create (segmented
+  control). `submit_guess` derives the map-size km server-side from scope
+  (world 14,917 · country 2,000 · region 400 · city 40) and scores with it — clients
+  can't inflate. Same exponential, smaller km = closer guesses needed.
+- Client: scope picker in the create card + a scope label in the lobby. All displayed
+  points are already server-authoritative, so no client scoring change was needed.
+- Verified: same 10 km guess → 4,967 pts at World vs 410 at City.
+- ⬜ Later (deferred, not needed for scoring): reverse-geocode tags/labels
+  (city/region/country) for library browsing + auto-suggesting the scope; map
+  auto-zoom to the scope area.
 
 ### Stage 3 — Public pool (Explore tab) — DEFERRED: decide after Stage 2
 - `library_photos.is_public` opt-in with consent warning (strangers see

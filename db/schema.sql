@@ -775,3 +775,44 @@ begin
 end; $$;
 revoke all on function public.add_library_to_room(uuid, uuid[]) from public;
 grant execute on function public.add_library_to_room(uuid, uuid[]) to anon, authenticated;
+
+
+-- ============================================================
+--  STAGE 2: SCOPED SCORING — the host picks how tight the area is; the scoring
+--  exponential's map-size shrinks for tighter scopes (10 km off = great at World,
+--  poor at City). Server derives the km from the scope text so clients cannot
+--  inflate. Reverse-geocoded tags/labels are a later enhancement (not needed here).
+-- ============================================================
+alter table public.rooms add column if not exists scope text not null default 'world';  -- world|country|region|city
+
+create or replace function public.submit_guess(p_photo_id uuid, p_player_id uuid,
+  p_guess_lat double precision, p_guess_lng double precision)
+returns table(truth_lat double precision, truth_lng double precision, distance_km double precision, points integer)
+language plpgsql security definer set search_path = public as $$
+declare v_lat double precision; v_lng double precision; v_room uuid; v_dist double precision; v_pts integer;
+        v_mode text; v_phase text; v_ends timestamptz; v_cur uuid; v_scope text; v_km double precision;
+begin
+  select ph.truth_lat, ph.truth_lng, ph.room_id into v_lat, v_lng, v_room
+  from photos ph where ph.id = p_photo_id and ph.status = 'ready';
+  if v_lat is null then raise exception 'photo not available'; end if;
+  if not exists (select 1 from players pl where pl.id = p_player_id and pl.room_id = v_room and pl.user_id = auth.uid()) then
+    raise exception 'not your player for this room';
+  end if;
+  select mode, round_phase, round_ends_at, photo_order[round_idx+1], scope
+    into v_mode, v_phase, v_ends, v_cur, v_scope from rooms where id = v_room;
+  if v_mode = 'sync' then
+    if v_phase is distinct from 'guessing' or now() > v_ends then raise exception 'round closed'; end if;
+    if p_photo_id <> v_cur then raise exception 'not the current round photo'; end if;
+  end if;
+  v_km := case v_scope when 'city' then 40 when 'region' then 400 when 'country' then 2000 else 14916.862 end;
+  v_dist := 6371 * 2 * asin(sqrt(power(sin(radians(v_lat - p_guess_lat)/2),2)
+            + cos(radians(p_guess_lat))*cos(radians(v_lat))*power(sin(radians(v_lng - p_guess_lng)/2),2)));
+  v_pts := round(5000 * exp(-10 * v_dist / v_km));
+  insert into guesses(photo_id, player_id, guess_lat, guess_lng, distance_km, points)
+  values (p_photo_id, p_player_id, p_guess_lat, p_guess_lng, v_dist, v_pts)
+  on conflict (photo_id, player_id) do nothing;
+  select g.distance_km, g.points into v_dist, v_pts from guesses g where g.photo_id = p_photo_id and g.player_id = p_player_id;
+  return query select v_lat, v_lng, v_dist, v_pts;
+end; $$;
+revoke all on function public.submit_guess(uuid,uuid,double precision,double precision) from public;
+grant execute on function public.submit_guess(uuid,uuid,double precision,double precision) to anon, authenticated;

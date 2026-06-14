@@ -42,6 +42,18 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-14 (later 2) — local session (Claude)
+- **Stage 2 — scoped scoring shipped** (RPC + UI verified). `rooms.scope`
+  (world|country|region|city); `submit_guess` derives map-size km server-side from scope
+  (40 / 400 / 2000 / 14916.862) — clients can't inflate. Host picks the area in the
+  create card (`#scope-seg`, wired in `js/ui.js`); lobby shows a scope label
+  (`#scope-line` in `refreshLobby`). All displayed points were already server-sourced, so
+  no client scoring math changed. Verified: same 10 km guess → 4,967 (World) vs 410 (City).
+  In `db/schema.sql` under "STAGE 2: SCOPED SCORING".
+- **NEXT (this session): landing page** — a GeoGuessr-style splash with a big Play button
+  that enters the tabbed app (home/lobby + account). Owner asked for it; doing it next.
+  Then Stage 2 extras (reverse-geocode tags) / sync polish / global leaderboard remain.
+
 ### 2026-06-14 (later) — local session (Claude)
 - **Guide fix:** simplified the how-to-play GPS tip (was wordy + implied uploads
   generally strip GPS). Now: "Safari strips GPS before the app can read it; set

@@ -55,6 +55,22 @@
       : 'Relaxed: everyone guesses on their own time.';
   });
 
+  // ── Area / scoring-scope segmented control (writes to hidden #scope) ──
+  const scopeSeg = $('scope-seg');
+  const scopeHints = {
+    world:   'World: photos from anywhere. Full-size map scoring.',
+    country: 'Country: all photos from one country — closer guesses needed.',
+    region:  'Region: one area/state — precision matters a lot.',
+    city:    'City: all photos from one city — pinpoint the exact spot!'
+  };
+  scopeSeg && scopeSeg.addEventListener('click', e => {
+    const b = e.target.closest('.seg'); if (!b) return;
+    scopeSeg.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === b));
+    $('scope').value = b.dataset.val;
+    const hint = $('scope-hint');
+    if (hint) hint.textContent = scopeHints[b.dataset.val] || scopeHints.world;
+  });
+
   // ── Score / points "pop" on change (observes text, no module changes) ──
   const bump = id => {
     const el = $(id); if (!el) return;

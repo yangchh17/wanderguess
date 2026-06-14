@@ -396,6 +396,17 @@
         </div>
         <small class="mut" id="mode-hint">Relaxed: everyone guesses on their own time.</small>
       </div>
+      <div class="field">
+        <label>Area</label>
+        <input type="hidden" id="scope" value="world" />
+        <div class="segment" id="scope-seg">
+          <button type="button" class="seg on" data-val="world">World</button>
+          <button type="button" class="seg" data-val="country">Country</button>
+          <button type="button" class="seg" data-val="region">Region</button>
+          <button type="button" class="seg" data-val="city">City</button>
+        </div>
+        <small class="mut" id="scope-hint">World: photos from anywhere. Tighter areas reward closer guesses — pick one when all photos are from the same place.</small>
+      </div>
       <button id="btn-create" class="btn btn-primary">Create room</button>
     </div>
 
@@ -419,6 +430,7 @@
         <button id="btn-copy" type="button" class="btn btn-ghost btn-sm">Copy code</button>
         <button id="btn-share" type="button" class="btn btn-primary btn-sm">Share invite</button>
       </div>
+      <span class="mut" id="scope-line" style="text-align:center"></span>
       <button id="btn-leave" type="button" class="leave">Leave room</button>
     </div>
 
@@ -693,13 +705,14 @@ $('btn-create').addEventListener('click', async () => {
     await ensureAuth();
     const ppp = Math.max(1, Math.min(5, parseInt($('ppp').value, 10) || 3));
     const gmode = $('mode') && $('mode').value === 'sync' ? 'sync' : 'async';
+    const gscope = ($('scope') && ['world','country','region','city'].includes($('scope').value)) ? $('scope').value : 'world';
     const sppRaw = $('spp').value;
     // sync needs a clock; if "No limit" is chosen, fall back to 60s for sync.
     const spp = sppRaw === '' ? (gmode === 'sync' ? 60 : null) : parseInt(sppRaw, 10);
     let room = null;
     for (let i = 0; i < 5 && !room; i++) {
       const code = randomCode();
-      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp, mode: gmode }).select().single();
+      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp, mode: gmode, scope: gscope }).select().single();
       if (!error) room = data;                 // unique-violation => retry
     }
     if (!room) throw new Error('could not allocate a room code');
@@ -819,10 +832,12 @@ function invalidSession(msg){
 async function refreshLobby(){
   await sb.rpc('touch_player', { p_player_id: session.playerId });   // presence heartbeat (await so we count as online)
 
-  const { data: room } = await sb.from('rooms').select('status,game_seq,mode').eq('id', session.roomId).maybeSingle();
+  const { data: room } = await sb.from('rooms').select('status,game_seq,mode,scope').eq('id', session.roomId).maybeSingle();
   const status = room ? room.status : 'lobby';
   roomSeq = room ? (room.game_seq || 0) : roomSeq;   // keep guess-memory scoped to the current game
   roomMode = room ? (room.mode || 'async') : roomMode;
+  const scopeLabels = { world:'🌍 World — photos from anywhere', country:'🗺️ Country scope — guess closer', region:'📍 Region scope — be precise', city:'🏙️ City scope — pinpoint it!' };
+  $('scope-line').textContent = scopeLabels[room ? room.scope : 'world'] || scopeLabels.world;
 
   // roster with server-computed presence (online). Host = earliest player.
   const { data: players } = await sb.from('roster')
