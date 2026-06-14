@@ -50,9 +50,13 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
   (`#scope-line` in `refreshLobby`). All displayed points were already server-sourced, so
   no client scoring math changed. Verified: same 10 km guess → 4,967 (World) vs 410 (City).
   In `db/schema.sql` under "STAGE 2: SCOPED SCORING".
-- **NEXT (this session): landing page** — a GeoGuessr-style splash with a big Play button
-  that enters the tabbed app (home/lobby + account). Owner asked for it; doing it next.
-  Then Stage 2 extras (reverse-geocode tags) / sync polish / global leaderboard remain.
+- **Landing page shipped** (same session): `#s-landing` overlay (big brand + tagline +
+  **Play** button + "How to play") shows on load unless resuming a room; `#btn-play`
+  hides it to reveal the tabbed app. Removed the auto-popping help from `js/ui.js` (the
+  splash is the first impression now). Verified: shows on load, Play → home + tabs, help
+  link works.
+- Remaining: Stage 2 extras (reverse-geocode tags), sync polish (Realtime), global
+  leaderboard, in-game tab badge, prune dead direct-upload code.
 
 ### 2026-06-14 (later) — local session (Claude)
 - **Guide fix:** simplified the how-to-play GPS tip (was wordy + implied uploads

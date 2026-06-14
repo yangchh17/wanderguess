@@ -89,10 +89,6 @@
     $('help-close-btn').addEventListener('click', closeHelp);
     $('help-got-it').addEventListener('click', closeHelp);
     overlay.addEventListener('click', e => { if (e.target === overlay) closeHelp(); });
-    // Auto-show once for first-time visitors
-    if (!localStorage.getItem('wg.seen-help')) {
-      openHelp();
-      localStorage.setItem('wg.seen-help', '1');
-    }
+    // (No auto-show — the landing splash is the first impression; help is one tap away.)
   })();
 })();

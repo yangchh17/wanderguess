@@ -151,6 +151,9 @@ touches the formula.
   add photos → ready/start → players → leaderboard) with a **state-driven "next step"
   banner** (1 Add photos → 2 Ready → 3 Start / waiting / Game on) driven by
   `refreshLobby`. Verified the banner advances through each state.
+- ✅ **Landing splash (2026-06-14):** a GeoGuessr-style `#s-landing` overlay (brand +
+  tagline + big **Play** button + "How to play") shows on load unless you're resuming a
+  room; Play reveals the tabbed app (home/lobby + tabs). Replaced the auto-popping help.
 - ⬜ In-game badge on the Play tab while a round is active.
 - Full-screen overlays (play/results/pin/help) unchanged; they render above the bar.
 
