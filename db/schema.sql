@@ -731,3 +731,47 @@ returns void language sql security definer set search_path = public as $$
 $$;
 revoke all on function public.delete_library_photo(uuid) from public;
 grant execute on function public.delete_library_photo(uuid) to anon, authenticated;
+
+
+-- ============================================================
+--  LIBRARY -> ROOM (Stage 1 slice 2): pick library photos into a room's pool.
+--  Room photos are copies of library photos (truth copied server-side, never
+--  exposed). photos.source_lib_id links a room photo back to its library photo
+--  (dedupe + pool sync). Clients select from their library grid; this RPC sets
+--  the player's pool to exactly the chosen library ids (capped).
+-- ============================================================
+alter table public.photos add column if not exists source_lib_id uuid;
+create unique index if not exists photos_room_player_lib
+  on public.photos(room_id, uploader_id, source_lib_id) where source_lib_id is not null;
+grant select (source_lib_id) on public.photos to anon, authenticated;
+
+drop view if exists public.photos_public;
+create view public.photos_public with (security_invoker = on) as
+  select id, room_id, uploader_id, status, display_url, error, in_pool, source_lib_id, created_at
+  from public.photos;
+grant select on public.photos_public to anon, authenticated;
+
+create or replace function public.add_library_to_room(p_player_id uuid, p_lib_ids uuid[])
+returns int language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_cap int; v_count int;
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select photos_per_player into v_cap from rooms where id = v_room;
+  insert into photos(room_id, uploader_id, status, in_pool, truth_lat, truth_lng, display_url, source_lib_id)
+  select v_room, p_player_id, 'ready', false, lp.truth_lat, lp.truth_lng, lp.display_url, lp.id
+  from library_photos lp
+  where lp.id = any(p_lib_ids) and lp.user_id = auth.uid() and lp.status = 'ready'
+    and not exists (select 1 from photos ph
+                    where ph.room_id = v_room and ph.uploader_id = p_player_id and ph.source_lib_id = lp.id);
+  update photos set in_pool = false where room_id = v_room and uploader_id = p_player_id;
+  update photos set in_pool = true where id in (
+    select ph.id from photos ph
+    where ph.room_id = v_room and ph.uploader_id = p_player_id
+      and ph.source_lib_id = any(p_lib_ids) and ph.status = 'ready'
+    order by ph.created_at limit v_cap);
+  select count(*) into v_count from photos where room_id = v_room and uploader_id = p_player_id and in_pool = true;
+  return v_count;
+end; $$;
+revoke all on function public.add_library_to_room(uuid, uuid[]) from public;
+grant execute on function public.add_library_to_room(uuid, uuid[]) to anon, authenticated;

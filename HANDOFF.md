@@ -42,6 +42,24 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-14 — local session (Claude)
+- **Stage 1 COMPLETE — library is now the primary upload path** (slice 2: library→room).
+  - DB: `photos.source_lib_id` (+ partial unique index) links a room photo to its
+    library source; `photos_public` view + grant now include it; new
+    `add_library_to_room(p_player_id, p_lib_ids[])` RPC copies chosen library photos into
+    the room's `photos` (truth copied server-side, deduped, capped). In `db/schema.sql`.
+  - Client lobby: "Your photos" card now shows your **library grid** to pick from
+    (`renderMyPhotos(lib, pooledIds)`), `submitPool` → `add_library_to_room`, the lobby
+    "Add a photo" picker uploads to the library AND pre-selects (`uploadToLibrary` gained
+    an `opts {listEl,onReady}` param). Empty-library shows a prompt.
+  - Verified end-to-end: empty prompt → seed → grid → pick → Add to pool (copies, linked,
+    pooled) → `submit_guess` scores 5000 on a library-sourced photo.
+  - ⚠️ Dead-but-harmless now: the old `uploadOne` (room direct upload) and the
+    `set_pool`/`delete_photo` RPCs + `wg.up` dedup are no longer used by the lobby. Safe
+    to prune later; left in place to minimize this diff.
+- **Stage 1 (library) + sync mode (S1+S2) are both fully shipped.** Big remaining items:
+  Stage 2 (scoped scoring), sync polish (Realtime), global leaderboard, the prune above.
+
 ### 2026-06-13 (later 6) — local session (Claude)
 - **Library tab shipped** (Stage 1 client slice 1). Tab bar is now **Play · Library ·
   Profile** (`js/nav.js` handles the 3rd tab via a `wg:open-library` event). New

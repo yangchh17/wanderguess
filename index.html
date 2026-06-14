@@ -434,8 +434,8 @@
       </div>
       <label class="filepick">
         <span class="pico">＋</span>
-        <span>Add photos from your phone</span>
-        <small>JPEG, PNG or HEIC · location read automatically</small>
+        <span>Add a photo</span>
+        <small>saved to your library &amp; picked for this game · JPEG/PNG/HEIC</small>
         <input type="file" id="photo-input" accept="image/*" multiple />
       </label>
       <div id="up-msg" class="msg"></div>
@@ -848,7 +848,7 @@ async function refreshLobby(){
 
   // pool (own included) + my photos
   const { data: pool } = await sb.from('photos_public')
-    .select('id,uploader_id,in_pool,display_url').eq('room_id', session.roomId).eq('status', 'ready');
+    .select('id,uploader_id,in_pool,display_url,source_lib_id').eq('room_id', session.roomId).eq('status', 'ready');
   const all = pool || [];
   const pooled = all.filter(p => p.in_pool);
   const myPooled = pooled.filter(p => p.uploader_id === session.playerId).length;
@@ -856,7 +856,10 @@ async function refreshLobby(){
   const togo = pooled.filter(p => !done.has(p.id));
   $('pool-count').textContent = pooled.length;
   $('togo-count').textContent = togo.length;
-  renderMyPhotos(all.filter(p => p.uploader_id === session.playerId));
+  // Pool is now built from your personal library: show the library grid to select from.
+  const myPooledLibIds = new Set(pooled.filter(p => p.uploader_id === session.playerId && p.source_lib_id).map(p => p.source_lib_id));
+  const { data: lib } = await sb.from('library_public').select('id,display_url,status').order('created_at', { ascending: false });
+  renderMyPhotos((lib || []).filter(p => p.status === 'ready'), myPooledLibIds);
 
   // Ready toggle (enabled once you've added at least one photo; N is a max, not required)
   const canReady = myPooled >= 1;
@@ -923,44 +926,38 @@ async function refreshLobby(){
   renderLeaderboard($('leaderboard'), lb || []);
 }
 
-// Selectable grid of MY ready photos; pick up to roomPPP to add to the pool.
-function renderMyPhotos(mine){
-  if (mySelected === null) mySelected = new Set(mine.filter(p => p.in_pool).map(p => p.id));
-  const present = new Set(mine.map(p => p.id));
+// Selectable grid of MY LIBRARY photos; pick up to roomPPP to add to the room pool.
+// `lib` = my ready library photos; `pooledIds` = library ids already in this room's pool.
+function renderMyPhotos(lib, pooledIds){
+  if (mySelected === null) mySelected = new Set(pooledIds || []);
+  const present = new Set(lib.map(p => p.id));
   for (const id of [...mySelected]) if (!present.has(id)) mySelected.delete(id);
 
-  $('btn-collapse').style.display = mine.length ? '' : 'none';
+  $('btn-collapse').style.display = lib.length ? '' : 'none';
 
   const grid = $('my-photos');
-  grid.innerHTML = mine.map(p =>
-    `<div class="mph ${mySelected.has(p.id) ? 'sel' : ''}" data-id="${p.id}">` +
-    `<img src="${p.display_url}" alt=""/><div class="tick">✓</div><button class="del" title="Delete">×</button></div>`).join('');
-
-  grid.querySelectorAll('.mph').forEach(el => {
-    el.addEventListener('click', () => {
+  if (!lib.length) {
+    grid.innerHTML = '<span class="mut">Your library is empty — add a photo above (or in the Library tab), then pick which to play.</span>';
+  } else {
+    grid.innerHTML = lib.map(p =>
+      `<div class="mph ${mySelected.has(p.id) ? 'sel' : ''}" data-id="${p.id}">` +
+      `<img src="${p.display_url}" alt=""/><div class="tick">✓</div></div>`).join('');
+    grid.querySelectorAll('.mph').forEach(el => el.addEventListener('click', () => {
       const id = el.dataset.id;
       if (mySelected.has(id)) mySelected.delete(id);
       else { if (mySelected.size >= roomPPP) return; mySelected.add(id); }
-      renderMyPhotos(mine);
-    });
-    el.querySelector('.del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!confirm('Delete this photo?')) return;
-      await sb.rpc('delete_photo', { p_player_id: session.playerId, p_photo_id: el.dataset.id });
-      forgetUp(el.dataset.id);
-      mySelected.delete(el.dataset.id);
-      refreshLobby();
-    });
-  });
+      renderMyPhotos(lib, pooledIds);
+    }));
+  }
 
   const n = mySelected.size;
   const btn = $('btn-pool');
-  btn.disabled = n < 1;                                  // up to roomPPP, at least 1
-  btn.textContent = n < 1 ? `Add to pool (up to ${roomPPP})` : `Add ${n} to pool`;
+  btn.disabled = !lib.length;
+  btn.textContent = n < 1 ? `Add to pool (pick up to ${roomPPP})` : `Add ${n} to pool`;
 }
 
 async function submitPool(){
-  const { error } = await sb.rpc('set_pool', { p_player_id: session.playerId, p_photo_ids: [...mySelected] });
+  const { error } = await sb.rpc('add_library_to_room', { p_player_id: session.playerId, p_lib_ids: [...mySelected] });
   if (error) { alert('Error: ' + error.message); return; }
   refreshLobby();
 }
@@ -1046,15 +1043,16 @@ async function withDecodeSlot(fn){
   try { return await fn(); } finally { decodeSlots++; const w = decodeWaiters.shift(); if (w) w(); }
 }
 
+// Lobby "add photo" → uploads into your library AND pre-selects it for this room.
 $('photo-input').addEventListener('change', (e) => {
-  const picked = [...e.target.files].slice(0, 10);
+  const picked = [...e.target.files].slice(0, 15);
   e.target.value = '';
   if (!picked.length) return;
-  const seen = new Set(); const fresh = [];
-  for (const f of picked){ const k = fileKey(f); if (isDup(f) || seen.has(k)) continue; seen.add(k); fresh.push(f); }
-  const skipped = picked.length - fresh.length;
-  $('up-msg').className = 'msg'; $('up-msg').textContent = skipped ? `${skipped} already added — skipped` : '';
-  fresh.forEach(uploadOne);   // fire independently — one photo's pin never blocks the rest
+  $('up-msg').textContent = '';
+  picked.forEach(f => uploadToLibrary(f, {
+    listEl: $('uplist'),
+    onReady: (libId) => { if (mySelected && mySelected.size < roomPPP) mySelected.add(libId); refreshLobby(); }
+  }));
 });
 
 async function uploadOne(file){
@@ -1603,10 +1601,15 @@ $('lib-input').addEventListener('change', (e) => {
   if (!picked.length) return;
   picked.forEach(uploadToLibrary);
 });
-async function uploadToLibrary(file){
+// Upload a file into the personal library. opts.listEl = where to show progress
+// (defaults to the Library tab's list); opts.onReady(libId) runs on success
+// (Library tab → reload grid; lobby → pre-select + refresh).
+async function uploadToLibrary(file, opts = {}){
+  const listEl = opts.listEl || $('lib-uplist');
+  const onReady = opts.onReady || loadLibrary;
   const row = document.createElement('div'); row.className = 'up';
   row.innerHTML = `<img class="thumb" alt=""/><div class="updet"><div class="nm">${escapeHtml(file.name || 'photo')}</div><div class="st">preparing…</div></div>`;
-  $('lib-uplist').appendChild(row);
+  listEl.appendChild(row);
   const thumbEl = row.querySelector('.thumb');
   const setSt = t => { row.querySelector('.st').textContent = t; };
   const setCls = c => { row.className = 'up ' + c; };
@@ -1625,7 +1628,7 @@ async function uploadToLibrary(file){
       setSt('processing…');
       const { data, error } = await sb.functions.invoke('process-photo', { body: { target: 'library', photoId, srcPath, lat: coord.lat, lng: coord.lng } });
       if (error){ let d = error.message; try { if (error.context) d = (await error.context.json()).error || d; } catch {} setCls('bad'); setSt('error: ' + d); return; }
-      if (data.status === 'ready'){ setCls('ok'); setSt('added ✓'); loadLibrary(); setTimeout(() => row.remove(), 1000); }
+      if (data.status === 'ready'){ setCls('ok'); setSt('added ✓'); onReady(photoId); setTimeout(() => row.remove(), 1000); }
       else if (data.status === 'rejected'){ setCls('bad'); setSt(data.error || 'rejected'); }
       else { setCls('bad'); setSt('unexpected response'); }
     }

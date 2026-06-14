@@ -163,10 +163,15 @@ cross-user isolation, owner-only delete, cap.
 **✅ Library tab done (2026-06-13):** 3rd tab (Play · Library · Profile); upload to your
 library (reuses the decode/EXIF/pin pipeline with `target:'library'`), grid + delete +
 `N / 15` count. Verified: navigate, empty state, upload→process→renders, delete.
-**⬜ NEXT (slice 2):** wire library→room — `add_library_to_room(p_player_id, p_lib_ids[])`
-RPC (copies chosen library rows into the room's `photos`, truth preserved server-side,
-capped at `photos_per_player`) + change the lobby to pick from the library grid instead
-of a file picker (keep an "add photo" that uploads to library AND selects it in one step).
+**✅ Slice 2 done (2026-06-14) — Stage 1 COMPLETE:** `add_library_to_room(p_player_id,
+p_lib_ids[])` copies chosen library photos into the room's `photos` (truth copied
+server-side, `source_lib_id` link, dedup, capped at `photos_per_player`). The lobby's
+"Your photos" now shows your **library grid** to pick from (no room file-picker); the
+"Add a photo" button uploads to your library AND pre-selects it. Verified end-to-end:
+empty-library prompt → seed → pick → Add to pool (copies, linked, pooled) → guess scores
+5000 on a library-sourced photo. The library is now the primary upload path (iOS fix).
+- (Old direct room-upload RPCs `set_pool`/`delete_photo` and `uploadOne` remain defined
+  but unused by the new lobby; harmless — can be pruned later.)
 - `library_photos`: owned by auth.uid(); truth columns locked exactly like
   `photos` (truth stays RPC-only everywhere); safe view without truth;
   display images under `display/lib/{uid}/`.
