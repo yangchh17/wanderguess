@@ -222,9 +222,13 @@ empty-library prompt → seed → pick → Add to pool (copies, linked, pooled) 
 `public_photos_safe` view + `guess_public(photo, lat, lng)` RPC (world scope, returns
 the answer + score = solo reveal; stateless = no leaderboard yet). RPC + view verified
 (scores, truth locked, safe view shows photo+label only). Owner curates via the Supabase
-dashboard (insert display_url + truth_lat/lng + label). **⬜ NEXT (client):** an Explore
-solo-play screen/tab — random public photos, guess → timed reveal (truth + place label)
-→ next, scored. Empty-state until the owner seeds photos.
+dashboard (insert display_url + truth_lat/lng + label).
+**✅ Explore solo-play UI done (2026-06-14):** "Explore solo" on the landing + an
+"Explore public photos solo" button on home → a solo run of up to 5 random public photos:
+guess on the map → `guess_public` → timed (60s) reveal showing distance + the place label
+→ next → finish with total. Reuses the play screen (own `explore.on` route). Empty-state
+("pool is being curated") when no photos. Verified end-to-end (render, guess, reveal+label,
+score, progression, finish, exit). The pool ships **empty** — owner seeds it.
 - **Later (full UGC, deferred):** `library_photos.is_public` opt-in with consent warning
   (strangers see the photo + its exact location after guessing). Publishing requires a
   real (non-anon) account → ban handle + abuse friction.

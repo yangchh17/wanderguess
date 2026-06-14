@@ -42,6 +42,22 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-14 (later 4) — local session (Claude)
+- **Explore solo-play UI shipped** — the curated public pool is now playable. Entry:
+  "🌍 Explore solo" on the landing + "Explore public photos solo" on home (both →
+  `enterExplore`). Solo run of up to 5 random `public_photos_safe`: render photo →
+  guess on the map → `guess_public` → 60s timed reveal (distance + place label) → next →
+  finish (total score). New `explore` controller in the inline module; shared play
+  handlers (gmap click, g-confirm, g-next, g-exit, g-back, `inGuessPhase`) now route
+  `explore.on` → sync.on → async. Empty-state shows when the pool has no photos.
+- Verified end-to-end (empty state; then with 2 seeded photos: render, guess, reveal with
+  label, score, round progression, finish "scored 794 across 2 photos", exit to home).
+- **Pool ships empty** — owner curates via the Supabase dashboard (insert `public_photos`
+  rows: display_url + truth_lat/lng + label). Test placeholders were deleted.
+- **Stage 3 v1 (curated public pool) is COMPLETE** (backend + Explore UI). Deferred:
+  UGC publishing + moderation, public/global leaderboard, daily challenge, an in-app
+  owner-curation tool, an Explore tab (currently landing/home buttons).
+
 ### 2026-06-14 (later 3) — local session (Claude)
 - **Public pool (Stage 3) STARTED — curated-first** (owner chose this over UGC). Backend
   shipped + tested: `public_photos` (truth locked) + `public_photos_safe` view +

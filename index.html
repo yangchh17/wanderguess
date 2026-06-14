@@ -366,7 +366,8 @@
       </span>
       <h1 class="landing-title">Wanderguess</h1>
       <p class="landing-sub">Guess where your friends' photos were taken. Drop onto a world map, race the clock, and see who really knows.</p>
-      <button id="btn-play" class="btn btn-primary landing-play" type="button">Play</button>
+      <button id="btn-play" class="btn btn-primary landing-play" type="button">Play with friends</button>
+      <button id="btn-explore" class="btn btn-ghost" type="button" style="width:min(320px,82vw)">🌍 Explore solo</button>
       <button id="landing-help" class="linkbtn" type="button">How to play</button>
     </div>
   </div>
@@ -452,6 +453,8 @@
       <input id="join-code" class="code-input" placeholder="CODE" maxlength="6" autocapitalize="characters" autocomplete="off" />
       <button id="btn-join" class="btn btn-ghost">Join room</button>
     </div>
+
+    <button id="btn-explore-home" class="btn btn-ghost" type="button">🌍 Explore public photos solo</button>
 
     <div id="home-msg" class="msg"></div>
   </section>
@@ -1182,6 +1185,7 @@ function ensureGuessMap(){
   panel.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') setGExpanded(true); });
   panel.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && gstate.phase === 'guessing') setGExpanded(false); });
   gmap.on('click', (e) => {
+    if (explore.on) { exploreMapClick(e); return; }
     if (sync.on) { syncMapClick(e); return; }
     if (gstate.phase !== 'guessing') return;
     // Touch: first tap expands the small map; next tap drops the pin.
@@ -1381,7 +1385,7 @@ function exitPlay(){ clearTimer(); $('s-play').classList.remove('on'); refreshLo
 const sync = { on:false, timer:null, idx:-1, phase:null, photoId:null, guess:null, guessed:false, score:0, lastPoints:0, advancing:false };
 let syncLayers = [];
 function clearSyncLayers(){ syncLayers.forEach(l => l && gmap && gmap.removeLayer(l)); syncLayers = []; }
-const inGuessPhase = () => sync.on ? sync.phase === 'guessing' : gstate.phase === 'guessing';
+const inGuessPhase = () => explore.on ? explore.phase === 'guessing' : sync.on ? sync.phase === 'guessing' : gstate.phase === 'guessing';
 
 function enterSyncPlay(){
   if (sync.on) return;
@@ -1496,6 +1500,103 @@ async function finishSync(){
   $('g-finish').classList.add('on');
 }
 
+// ──────────────── Explore (solo play on the curated public pool) ────────────────
+const explore = { on:false, queue:[], idx:0, guess:null, guessed:false, score:0, phase:'idle', timer:null, remaining:0 };
+const EXPLORE_SECS = 60, EXPLORE_N = 5;
+
+async function enterExplore(){
+  $('s-landing').classList.remove('on');
+  const { data } = await sb.from('public_photos_safe').select('id,display_url,label').limit(60);
+  let pool = (data || []).filter(p => p.display_url);
+  for (let i = pool.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  explore.queue = pool.slice(0, EXPLORE_N);
+  explore.on = true; explore.idx = 0; explore.score = 0; explore.phase = 'idle';
+  $('g-finish').classList.remove('on'); $('s-play').classList.add('on');
+  ensureGuessMap(); setTimeout(() => gmap.invalidateSize(), 60);
+  if (!explore.queue.length){ finishExplore(true); return; }
+  exploreRender();
+}
+function exploreRender(){
+  explore.phase = 'guessing'; explore.guess = null; explore.guessed = false;
+  clearGuessLayers(); clearSyncLayers(); setGExpanded(false); hideReveal(); resetZoom();
+  if (gmap) gmap.setView([20, 0], 2);
+  const ph = explore.queue[explore.idx];
+  $('g-round').textContent = `${explore.idx + 1} / ${explore.queue.length}`;
+  $('g-score').textContent = explore.score.toLocaleString();
+  $('g-confirm').style.display = ''; $('g-confirm').disabled = true; $('g-confirm').textContent = 'Tap the map to guess';
+  $('g-next').style.display = 'none';
+  const photo = $('g-photo'); photo.style.backgroundImage = 'none'; $('g-spin').classList.add('on');
+  const pre = new Image(); pre.onload = () => { $('g-spin').classList.remove('on'); photo.style.backgroundImage = `url("${ph.display_url}")`; }; pre.onerror = () => $('g-spin').classList.remove('on'); pre.src = ph.display_url;
+  explore.remaining = EXPLORE_SECS; exploreRunTimer();
+}
+function exploreRunTimer(){
+  clearInterval(explore.timer);
+  const tick = () => { $('g-time').textContent = fmtTime(Math.max(0, explore.remaining)); $('g-time').classList.toggle('low', explore.remaining <= 10); };
+  tick();
+  explore.timer = setInterval(() => { explore.remaining--; tick(); if (explore.remaining <= 0){ clearInterval(explore.timer); exploreTimeUp(); } }, 1000);
+}
+function exploreTimeUp(){ if (explore.phase !== 'guessing') return; if (explore.guess) exploreConfirm(); else exploreRevealNoGuess(); }
+function exploreMapClick(e){
+  if (explore.phase !== 'guessing' || explore.guessed) return;
+  if (!$('g-mapPanel').classList.contains('expanded')){ setGExpanded(true); return; }
+  explore.guess = wrapLL(e.latlng);
+  const icon = L.divIcon({ className:'', html:'<div class="guesspin"></div>', iconSize:[20,20], iconAnchor:[10,10] });
+  if (gGuessMarker) gGuessMarker.setLatLng(e.latlng); else gGuessMarker = L.marker(e.latlng, { icon }).addTo(gmap);
+  $('g-confirm').disabled = false; $('g-confirm').textContent = 'Confirm guess';
+}
+async function exploreConfirm(){
+  if (!explore.guess || explore.guessed || explore.phase !== 'guessing') return;
+  clearInterval(explore.timer);
+  $('g-confirm').disabled = true; $('g-confirm').textContent = 'scoring…';
+  const ph = explore.queue[explore.idx];
+  const { data, error } = await sb.rpc('guess_public', { p_photo_id: ph.id, p_guess_lat: explore.guess.lat, p_guess_lng: explore.guess.lng });
+  if (error){ $('g-confirm').disabled = false; $('g-confirm').textContent = 'Confirm guess'; alert('Error: ' + error.message); return; }
+  exploreReveal(data[0]);
+}
+function exploreReveal(r){
+  explore.phase = 'revealed'; explore.guessed = true; clearInterval(explore.timer);
+  setGExpanded(true); $('g-confirm').style.display = 'none';
+  explore.score += r.points; $('g-score').textContent = explore.score.toLocaleString();
+  const truth = { lat: r.truth_lat, lng: r.truth_lng };
+  const gNear = nearLng(truth, explore.guess);
+  if (gGuessMarker) gGuessMarker.setLatLng(gNear);
+  const icon = L.divIcon({ className:'', html:'<div class="truthpin"></div>', iconSize:[20,20], iconAnchor:[10,10] });
+  gTruthMarker = L.marker(truth, { icon }).bindTooltip(r.label || 'Actual location').addTo(gmap);
+  gLine = L.polyline([truth, gNear], { color:'#adb4d4', weight:2, dashArray:'6 4', opacity:.7 }).addTo(gmap);
+  setTimeout(() => { gmap.invalidateSize(); gmap.fitBounds(L.latLngBounds([truth, gNear]).pad(.25)); }, 200);
+  showReveal(r.distance_km, r.points);
+  if (r.label) $('rv-dist').innerHTML += ` · <b>${escapeHtml(r.label)}</b>`;
+  $('g-next').style.display = ''; $('g-next').textContent = (explore.idx + 1 < explore.queue.length) ? 'Next photo' : 'Finish';
+}
+async function exploreRevealNoGuess(){
+  const ph = explore.queue[explore.idx];
+  const { data } = await sb.rpc('guess_public', { p_photo_id: ph.id, p_guess_lat: 0, p_guess_lng: 0 });
+  explore.phase = 'revealed'; explore.guessed = true; setGExpanded(true); $('g-confirm').style.display = 'none';
+  const r = data && data[0];
+  if (r){
+    const truth = { lat: r.truth_lat, lng: r.truth_lng };
+    const icon = L.divIcon({ className:'', html:'<div class="truthpin"></div>', iconSize:[20,20], iconAnchor:[10,10] });
+    gTruthMarker = L.marker(truth, { icon }).bindTooltip(r.label || 'Actual location').addTo(gmap);
+    setTimeout(() => { gmap.invalidateSize(); gmap.setView([truth.lat, truth.lng], 4); }, 200);
+  }
+  showReveal(null, 0);
+  if (r && r.label) $('rv-dist').innerHTML += ` · <b>${escapeHtml(r.label)}</b>`;
+  $('g-next').style.display = ''; $('g-next').textContent = (explore.idx + 1 < explore.queue.length) ? 'Next photo' : 'Finish';
+}
+function exploreNext(){ if (explore.idx + 1 < explore.queue.length){ explore.idx++; exploreRender(); } else finishExplore(false); }
+function finishExplore(empty){
+  explore.phase = 'done'; clearInterval(explore.timer);
+  $('g-finish-sub').textContent = empty
+    ? 'No public photos yet — the pool is being curated. Check back soon!'
+    : `You scored ${explore.score.toLocaleString()} across ${explore.queue.length} photo${explore.queue.length === 1 ? '' : 's'}.`;
+  $('g-reveal').style.display = 'none';
+  $('g-finish-lb').innerHTML = '';
+  $('g-back').textContent = 'Done';
+  $('g-finish').classList.add('on');
+}
+function exitExplore(){ clearInterval(explore.timer); explore.on = false; $('g-back').textContent = 'Back to lobby'; $('s-play').classList.remove('on'); $('g-finish').classList.remove('on'); show('s-home'); }
+window.addEventListener('wg:open-explore', enterExplore);
+
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
 $('btn-pool').addEventListener('click', submitPool);
@@ -1517,10 +1618,10 @@ $('btn-hoststart').addEventListener('click', async () => {
   refreshLobby();
 });
 $('btn-start').addEventListener('click', enterPlay);
-$('g-confirm').addEventListener('click', () => sync.on ? syncConfirm() : confirmGuess2());
-$('g-next').addEventListener('click', nextGuess);
-$('g-exit').addEventListener('click', () => sync.on ? exitSync() : exitPlay());
-$('g-back').addEventListener('click', exitPlay);
+$('g-confirm').addEventListener('click', () => explore.on ? exploreConfirm() : sync.on ? syncConfirm() : confirmGuess2());
+$('g-next').addEventListener('click', () => explore.on ? exploreNext() : nextGuess());
+$('g-exit').addEventListener('click', () => explore.on ? exitExplore() : sync.on ? exitSync() : exitPlay());
+$('g-back').addEventListener('click', () => explore.on ? exitExplore() : exitPlay());
 $('g-reveal').addEventListener('click', openResults);
 $('btn-results').addEventListener('click', openResults);
 $('r-back').addEventListener('click', () => $('s-results').classList.remove('on'));
@@ -1690,6 +1791,8 @@ window.addEventListener('wg:open-library', loadLibrary);
 // Landing splash → Play enters the app (home → lobby). Shown on load unless resuming a room.
 $('btn-play').addEventListener('click', () => $('s-landing').classList.remove('on'));
 $('landing-help').addEventListener('click', () => $('help-overlay').classList.add('on'));
+$('btn-explore').addEventListener('click', enterExplore);          // landing → solo Explore
+$('btn-explore-home').addEventListener('click', enterExplore);     // home → solo Explore
 
 // resume an existing session if present (after auth is ready); else offer rejoin
 // (account/profile, feedback, and UI enhancements live in js/*.js modules)
