@@ -217,9 +217,16 @@ empty-library prompt → seed → pick → Add to pool (copies, linked, pooled) 
   (city/region/country) for library browsing + auto-suggesting the scope; map
   auto-zoom to the scope area.
 
-### Stage 3 — Public pool (Explore tab) — DEFERRED: decide after Stage 2
-- `library_photos.is_public` opt-in with consent warning (strangers see
-  the photo + its exact location after guessing). Publishing requires a
+### Stage 3 — Public pool (Explore) — STARTED, curated-first (owner decided 2026-06-14)
+**✅ Backend done (v1 = curated, no UGC):** `public_photos` table (truth locked) +
+`public_photos_safe` view + `guess_public(photo, lat, lng)` RPC (world scope, returns
+the answer + score = solo reveal; stateless = no leaderboard yet). RPC + view verified
+(scores, truth locked, safe view shows photo+label only). Owner curates via the Supabase
+dashboard (insert display_url + truth_lat/lng + label). **⬜ NEXT (client):** an Explore
+solo-play screen/tab — random public photos, guess → timed reveal (truth + place label)
+→ next, scored. Empty-state until the owner seeds photos.
+- **Later (full UGC, deferred):** `library_photos.is_public` opt-in with consent warning
+  (strangers see the photo + its exact location after guessing). Publishing requires a
   real (non-anon) account → ban handle + abuse friction.
 - Ratings: photo quality + "location accurate?" as separate signals.
   Auto-retire needs a minimum vote count (Wilson-style) first; soft-delete

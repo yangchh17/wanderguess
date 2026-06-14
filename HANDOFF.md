@@ -42,6 +42,23 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-14 (later 3) — local session (Claude)
+- **Public pool (Stage 3) STARTED — curated-first** (owner chose this over UGC). Backend
+  shipped + tested: `public_photos` (truth locked) + `public_photos_safe` view +
+  `guess_public(photo,lat,lng)` RPC (world scope; returns answer+score = solo reveal;
+  stateless, no leaderboard yet). In `db/schema.sql` under "PUBLIC POOL". Verified scoring
+  + truth lock + safe view (photo+label only). ⚠️ View must NOT reference the ungranted
+  `active` column — RLS (using active=true) does the row filtering.
+- **No client UI yet** — gameplay unchanged. The pool is empty (owner curates via the
+  Supabase dashboard: insert `public_photos` rows with display_url + truth_lat/lng + label;
+  display image can be any public URL or a file in the public `display` bucket).
+- **NEXT (this session): Explore solo-play UI** — an Explore entry (tab and/or a landing
+  button) → solo run of random `public_photos_safe`, guess on the map → `guess_public` →
+  timed reveal (truth + label) → next, scored. Reuse the play screen + helpers (own
+  `explore.on` route like `sync.on`). Empty-state when the pool has no photos.
+- **Deferred:** UGC publishing (is_public opt-in + consent + report/auto-hide + real-
+  account gating), public/global leaderboard, daily challenge.
+
 ### 2026-06-14 (later 2) — local session (Claude)
 - **Stage 2 — scoped scoring shipped** (RPC + UI verified). `rooms.scope`
   (world|country|region|city); `submit_guess` derives map-size km server-side from scope

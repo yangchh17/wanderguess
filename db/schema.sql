@@ -816,3 +816,49 @@ begin
 end; $$;
 revoke all on function public.submit_guess(uuid,uuid,double precision,double precision) from public;
 grant execute on function public.submit_guess(uuid,uuid,double precision,double precision) to anon, authenticated;
+
+
+-- ============================================================
+--  PUBLIC POOL (Stage 3, v1 = curated / owner-seeded; no UGC yet).
+--  Anyone can play these solo. Truth locked like everywhere else; clients read the
+--  safe view (no coords) and score via guess_public (which returns the answer — solo
+--  reveal, no leaderboard yet, so it is fine to return truth on call).
+--  Owner curates via the dashboard: insert rows with display_url + truth_lat/lng + label.
+--  (UGC publishing + reporting/moderation = later; would record guesses & withhold truth.)
+-- ============================================================
+create table if not exists public.public_photos (
+  id          uuid primary key default gen_random_uuid(),
+  display_url text not null,
+  truth_lat   double precision not null,   -- PRIVATE — never granted to clients
+  truth_lng   double precision not null,   -- PRIVATE
+  label       text,                        -- optional place name, shown on reveal
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+alter table public.public_photos enable row level security;
+revoke all on public.public_photos from anon, authenticated;
+drop policy if exists pub_select on public.public_photos;
+create policy pub_select on public.public_photos for select to anon, authenticated using (active = true);
+grant select (id, display_url, label, created_at) on public.public_photos to anon, authenticated;
+
+-- RLS (active=true) filters rows; the view must not reference the ungranted `active` column.
+drop view if exists public.public_photos_safe;
+create view public.public_photos_safe with (security_invoker = on) as
+  select id, display_url, label, created_at from public.public_photos;
+grant select on public.public_photos_safe to anon, authenticated;
+
+create or replace function public.guess_public(p_photo_id uuid, p_guess_lat double precision, p_guess_lng double precision)
+returns table(truth_lat double precision, truth_lng double precision, distance_km double precision, points integer, label text)
+language plpgsql security definer set search_path = public as $$
+declare v_lat double precision; v_lng double precision; v_label text; v_dist double precision; v_pts integer;
+begin
+  select pp.truth_lat, pp.truth_lng, pp.label into v_lat, v_lng, v_label
+  from public_photos pp where pp.id = p_photo_id and pp.active = true;
+  if v_lat is null then raise exception 'photo not available'; end if;
+  v_dist := 6371 * 2 * asin(sqrt(power(sin(radians(v_lat - p_guess_lat)/2),2)
+            + cos(radians(p_guess_lat))*cos(radians(v_lat))*power(sin(radians(v_lng - p_guess_lng)/2),2)));
+  v_pts := round(5000 * exp(-10 * v_dist / 14916.862));
+  return query select v_lat, v_lng, v_dist, v_pts, v_label;
+end; $$;
+revoke all on function public.guess_public(uuid,double precision,double precision) from public;
+grant execute on function public.guess_public(uuid,double precision,double precision) to anon, authenticated;
