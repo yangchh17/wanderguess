@@ -43,6 +43,9 @@ Stage 1 (library) and any social features around *groups*, not solo memories.
 
 ## ✅ Done (deployed)
 - Lobby: create / join by code; rejoin reuses identity (rename supported).
+- Close room: host can delete the whole room (`close_room`) — button in the lobby and on
+  the home rejoin card. Public (open) rooms: host toggle `is_public`; "Join a public game"
+  finds an open, in-lobby, not-full room via `find_public_room` (no code needed).
 - Presence: heartbeat + server-computed `online` (roster view) — Safari-safe.
 - Host-controlled start (host = earliest player); host-start gated on online-ready.
 - Upload: client decode+downscale (HEIC via heic2any), hybrid location

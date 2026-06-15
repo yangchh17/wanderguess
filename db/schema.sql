@@ -862,3 +862,39 @@ begin
 end; $$;
 revoke all on function public.guess_public(uuid,double precision,double precision) from public;
 grant execute on function public.guess_public(uuid,double precision,double precision) to anon, authenticated;
+
+
+-- ============================================================
+--  CLOSE ROOM + PUBLIC (OPEN) ROOMS
+--  close_room: the host can delete the whole room (cascade). is_public: a room the
+--  host opens to anyone — discoverable via find_public_room while it is in the lobby
+--  and not full (so drop-in players can join without a code).
+-- ============================================================
+create or replace function public.close_room(p_player_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_room uuid; v_host uuid;
+begin
+  select room_id into v_room from players where id = p_player_id and user_id = auth.uid();
+  if v_room is null then raise exception 'not your player'; end if;
+  select id into v_host from players where room_id = v_room order by created_at, id limit 1;
+  if v_host is distinct from p_player_id then raise exception 'only the host can close the room'; end if;
+  delete from rooms where id = v_room;   -- on delete cascade clears players/photos/guesses
+end; $$;
+revoke all on function public.close_room(uuid) from public;
+grant execute on function public.close_room(uuid) to anon, authenticated;
+
+alter table public.rooms add column if not exists is_public boolean not null default false;
+
+-- One open public room that is not full or started (most-populated first, so games fill up).
+create or replace function public.find_public_room()
+returns table(id uuid, code text, players int)
+language sql security definer set search_path = public as $$
+  select r.id, r.code, (select count(*) from players p where p.room_id = r.id)::int as players
+  from rooms r
+  where r.is_public = true and r.status = 'lobby'
+    and (select count(*) from players p where p.room_id = r.id) < 6
+  order by (select count(*) from players p where p.room_id = r.id) desc, r.created_at desc
+  limit 1;
+$$;
+revoke all on function public.find_public_room() from public;
+grant execute on function public.find_public_room() to anon, authenticated;

@@ -42,6 +42,25 @@ DB is canonical in `db/schema.sql` and applied as Supabase migrations.
 
 ## Log (newest first)
 
+### 2026-06-14 (later 5) — local session (Claude)
+- **Close room + public (open) rooms shipped.** Migrations applied to live DB
+  (`close_room`, `rooms.is_public`, `find_public_room`); canonical SQL in `db/schema.sql`
+  under "CLOSE ROOM + PUBLIC (OPEN) ROOMS".
+  - **Close room** (host-only `close_room` RPC, cascade-deletes): a red "Close room
+    (delete for everyone)" button in the lobby (host-only, shown via `refreshLobby`) and
+    a "Close" button on the home rejoin card (works for the host; non-host gets "only the
+    host can close", keeps the pointer).
+  - **Public rooms:** create card has a "Who can join" toggle (Friends-code / Anyone →
+    `rooms.is_public`, wired in `js/ui.js` `#vis-seg`). Home "Join a public game" button →
+    `find_public_room` (open, in-lobby, not-full, most-populated first) → joins it.
+  - Verified in-browser: create public → `is_public` true + host Close button; host Close
+    → room deleted → home; "Join a public game" found + joined a seeded open room.
+- ⚠️ **Cleanup TODO (DB tool was disconnected at end):** a leftover **test public room
+  `OPEN2191`** (host "B-Host") may still be live and will show in "Join a public game" —
+  delete it from the Supabase dashboard (or via `delete from rooms where code='OPEN2191'`).
+- Remaining ideas: in-app owner tool for the public photo pool; UGC publishing; global/
+  daily leaderboard; sync Realtime; prune old direct-upload code.
+
 ### 2026-06-14 (later 4) — local session (Claude)
 - **Explore solo-play UI shipped** — the curated public pool is now playable. Entry:
   "🌍 Explore solo" on the landing + "Explore public photos solo" on home (both →

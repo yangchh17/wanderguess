@@ -71,6 +71,18 @@
     if (hint) hint.textContent = scopeHints[b.dataset.val] || scopeHints.world;
   });
 
+  // ── Visibility segmented control (writes to hidden #visibility) ──
+  const visSeg = $('vis-seg');
+  visSeg && visSeg.addEventListener('click', e => {
+    const b = e.target.closest('.seg'); if (!b) return;
+    visSeg.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === b));
+    $('visibility').value = b.dataset.val;
+    const hint = $('vis-hint');
+    if (hint) hint.textContent = b.dataset.val === 'public'
+      ? 'Anyone: shows up in "Join a public game" while you wait in the lobby.'
+      : 'Friends: only people with the code can join.';
+  });
+
   // ── Score / points "pop" on change (observes text, no module changes) ──
   const bump = id => {
     const el = $(id); if (!el) return;

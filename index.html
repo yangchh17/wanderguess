@@ -396,6 +396,7 @@
       <span class="resume-ic">↩</span>
       <div class="grow"><b>Pick up where you left off</b><br><span class="mut">You're still in a room.</span></div>
       <button id="btn-rejoin" class="btn btn-primary btn-sm">Rejoin</button>
+      <button id="btn-rejoin-close" class="btn btn-ghost btn-sm" type="button">Close</button>
     </div>
 
     <div class="card">
@@ -443,15 +444,25 @@
         </div>
         <small class="mut" id="scope-hint">World: photos from anywhere. Tighter areas reward closer guesses — pick one when all photos are from the same place.</small>
       </div>
+      <div class="field">
+        <label>Who can join</label>
+        <input type="hidden" id="visibility" value="private" />
+        <div class="segment segment-2" id="vis-seg">
+          <button type="button" class="seg on" data-val="private">Friends (code)</button>
+          <button type="button" class="seg" data-val="public">Anyone</button>
+        </div>
+        <small class="mut" id="vis-hint">Friends: only people with the code can join.</small>
+      </div>
       <button id="btn-create" class="btn btn-primary">Create room</button>
     </div>
 
     <div class="or">or</div>
 
     <div class="card">
-      <h2>Join with a code</h2>
+      <h2>Join a game</h2>
       <input id="join-code" class="code-input" placeholder="CODE" maxlength="6" autocapitalize="characters" autocomplete="off" />
-      <button id="btn-join" class="btn btn-ghost">Join room</button>
+      <button id="btn-join" class="btn btn-ghost">Join with code</button>
+      <button id="btn-join-public" class="btn btn-primary" type="button">Join a public game</button>
     </div>
 
     <button id="btn-explore-home" class="btn btn-ghost" type="button">🌍 Explore public photos solo</button>
@@ -470,6 +481,7 @@
       </div>
       <span class="mut" id="scope-line" style="text-align:center"></span>
       <button id="btn-leave" type="button" class="leave">Leave room</button>
+      <button id="btn-closeroom" type="button" class="leave" style="display:none;color:var(--bad)">Close room (delete for everyone)</button>
     </div>
 
     <div class="lobby-step" id="lobby-step">
@@ -744,13 +756,14 @@ $('btn-create').addEventListener('click', async () => {
     const ppp = Math.max(1, Math.min(5, parseInt($('ppp').value, 10) || 3));
     const gmode = $('mode') && $('mode').value === 'sync' ? 'sync' : 'async';
     const gscope = ($('scope') && ['world','country','region','city'].includes($('scope').value)) ? $('scope').value : 'world';
+    const gpublic = !!($('visibility') && $('visibility').value === 'public');
     const sppRaw = $('spp').value;
     // sync needs a clock; if "No limit" is chosen, fall back to 60s for sync.
     const spp = sppRaw === '' ? (gmode === 'sync' ? 60 : null) : parseInt(sppRaw, 10);
     let room = null;
     for (let i = 0; i < 5 && !room; i++) {
       const code = randomCode();
-      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp, mode: gmode, scope: gscope }).select().single();
+      const { data, error } = await sb.from('rooms').insert({ code, photos_per_player: ppp, seconds_per_photo: spp, mode: gmode, scope: gscope, is_public: gpublic }).select().single();
       if (!error) room = data;                 // unique-violation => retry
     }
     if (!room) throw new Error('could not allocate a room code');
@@ -823,6 +836,43 @@ $('btn-rejoin').addEventListener('click', () => {
   $('name').value = (ids[last] && ids[last].name) || $('name').value || 'Player';
   $('join-code').value = last;
   $('btn-join').click();
+});
+
+// Close (delete) the room you left — host only; clears the local pointer either way.
+$('btn-rejoin-close').addEventListener('click', async () => {
+  const last = localStorage.getItem('wg.lastroom'); if (!last) return;
+  const ids = (() => { try { return JSON.parse(localStorage.getItem(IDS) || '{}'); } catch { return {}; } })();
+  const rec = ids[last];
+  if (!rec) { localStorage.removeItem('wg.lastroom'); refreshHome(); return; }
+  if (!confirm(`Close room ${last} for everyone? This deletes it.`)) return;
+  await ensureAuth();
+  const { error } = await sb.rpc('close_room', { p_player_id: rec.playerId });
+  if (!error) { localStorage.removeItem('wg.lastroom'); msgHome(`Room ${last} closed.`, false); refreshHome(); }
+  else if (/not your player/.test(error.message)) { localStorage.removeItem('wg.lastroom'); refreshHome(); }  // already gone
+  else { msgHome(error.message, true); }   // e.g. "only the host can close the room"
+});
+
+// Join any open public game (in lobby, not full).
+$('btn-join-public').addEventListener('click', async () => {
+  const name = $('name').value.trim();
+  if (!name) return msgHome('Enter your name first.', true);
+  $('btn-join-public').disabled = true;
+  try {
+    await ensureAuth();
+    const { data, error } = await sb.rpc('find_public_room');
+    if (error) throw error;
+    if (!data || !data.length) { msgHome('No open public games right now — create one (set "Who can join" to Anyone)!', false); return; }
+    const r = data[0];
+    const { count } = await sb.from('players').select('id', { count: 'exact', head: true }).eq('room_id', r.id);
+    if ((count ?? 0) >= 6) { msgHome('That game just filled up — try again.', true); return; }
+    const { data: np, error: pe } = await sb.from('players').insert({ room_id: r.id, name }).select('id,name').single();
+    if (pe) throw pe;
+    rememberId(r.code, { roomId: r.id, playerId: np.id, name });
+    localStorage.setItem('wg.lastroom', r.code);
+    saveSession({ roomId: r.id, code: r.code, playerId: np.id, name: np.name || name });
+    enterLobby();
+  } catch (e) { msgHome('Error: ' + e.message, true); }
+  finally { $('btn-join-public').disabled = false; }
 });
 
 // ---- lobby ----
@@ -957,6 +1007,7 @@ async function refreshLobby(){
 
   // Host can reset for a new game (rematch)
   $('btn-newgame').style.display = amHost ? '' : 'none';
+  $('btn-closeroom').style.display = amHost ? '' : 'none';   // host can delete the whole room
 
   // Sync: everyone auto-enters the live game the moment the host starts it.
   if (status === 'playing' && roomMode === 'sync' && !sync.on) enterSyncPlay();
@@ -1599,6 +1650,13 @@ window.addEventListener('wg:open-explore', enterExplore);
 
 // play wiring
 $('btn-leave').addEventListener('click', leaveRoom);
+$('btn-closeroom').addEventListener('click', async () => {
+  if (!confirm('Close this room for everyone? This deletes the room, its photos and scores.')) return;
+  const { error } = await sb.rpc('close_room', { p_player_id: session.playerId });
+  if (error) { alert('Error: ' + error.message); return; }
+  localStorage.removeItem('wg.lastroom');
+  leaveRoom();   // clears local session → home
+});
 $('btn-pool').addEventListener('click', submitPool);
 $('btn-collapse').addEventListener('click', () => {
   const w = $('photos-wrap'); const hidden = w.classList.toggle('collapsed');
